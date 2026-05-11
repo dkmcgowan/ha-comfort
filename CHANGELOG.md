@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.1] - 2026-05-11
+
+### Fixed
+- **Transient DNS/network failures no longer permanently break setup.** During HA boot, if
+  `app-prod.kumocloud.com` is unreachable (DNS general failure, connection refused, socket
+  error), `async_setup_entry` now raises `ConfigEntryNotReady` instead of propagating a raw
+  exception. HA will retry with exponential backoff until the cloud API is reachable.
+- **`_request()` now wraps all connection-layer errors.** `aiohttp.ClientError` and `OSError`
+  (which includes `aiodns.error.DNSError` surfaced as `ClientConnectorDNSError`) are caught
+  and re-raised as `KumoCloudConnectionError` so they never propagate raw to the setup machinery.
+- **`refresh_access_token()` gets the same treatment** — DNS/socket errors during a token
+  refresh are now wrapped as `KumoCloudConnectionError`.
+- **403 responses now trigger the reauth flow** (not a connection error). A 403 from the API
+  raises `KumoCloudAuthError`, which maps to `ConfigEntryAuthFailed` in setup.
+- **Coordinator token-refresh retry path can no longer leak bare exceptions.** A connection
+  error that occurs while retrying after a 401 is now wrapped in `UpdateFailed` so the
+  coordinator degrades gracefully instead of crashing.
+
 ## [1.1.0] - 2026-03-09
 
 ### Added

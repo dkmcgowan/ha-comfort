@@ -132,6 +132,10 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(
                     f"Authentication failed: {refresh_err}"
                 ) from refresh_err
+            except Exception as refresh_err:
+                raise UpdateFailed(
+                    f"Error during token refresh: {refresh_err}"
+                ) from refresh_err
         except KumoCloudConnectionError as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
         except Exception as err:

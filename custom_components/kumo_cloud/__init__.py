@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
@@ -42,7 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     except KumoCloudAuthError as err:
         raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
-    except KumoCloudConnectionError as err:
+    except (KumoCloudConnectionError, aiohttp.ClientError, OSError) as err:
         raise ConfigEntryNotReady(f"Unable to connect: {err}") from err
 
     # Create the coordinator
