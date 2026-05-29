@@ -4,9 +4,11 @@
     "codeowners": ["@JoeQuantum"],
     "config_flow": true,
     "documentation": "https://github.com/JoeQuantum/comfort_HA/",
-    "issue_tracker": "https://github.com/JoeQuantum/comfort_HA/issues",
+    "integration_type": "hub",
     "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/JoeQuantum/comfort_HA/issues",
     "loggers": ["kumo_cloud"],
-    "requirements": ["aiohttp>=3.8.0"],
+    "quality_scale": "bronze",
+    "requirements": [],
     "version": "1.2.1"
 }
