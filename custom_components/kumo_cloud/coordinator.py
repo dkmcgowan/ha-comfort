@@ -195,7 +195,13 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
             _LOGGER.debug("Refreshed device %s data", device_serial)
 
-        except Exception as err:
+        except (
+            KumoCloudAuthError,
+            KumoCloudConnectionError,
+            aiohttp.ClientError,
+            OSError,
+            asyncio.TimeoutError,
+        ) as err:
             _LOGGER.warning("Failed to refresh device %s: %s", device_serial, err)
 
     def cache_command(self, device_serial: str, command: str, value: Any) -> None:
@@ -335,7 +341,13 @@ class KumoCloudDevice:
             # Refresh this specific device's data immediately
             await self.coordinator.async_refresh_device(self.device_serial)
 
-        except Exception as err:
+        except (
+            KumoCloudAuthError,
+            KumoCloudConnectionError,
+            aiohttp.ClientError,
+            OSError,
+            asyncio.TimeoutError,
+        ) as err:
             _LOGGER.error(
                 "Failed to send command to device %s: %s", self.device_serial, err
             )

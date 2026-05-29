@@ -28,34 +28,27 @@ DATA_SCHEMA_USER = vol.Schema(
 async def validate_auth(
     hass: HomeAssistant, user_input: dict[str, Any]
 ) -> dict[str, Any]:
-    """Validate the user credentials and return info."""
+    """Validate credentials and return account info.
+
+    Only KumoCloudAuthError / KumoCloudConnectionError propagate -- the
+    caller maps them to "invalid_auth" / "cannot_connect" errors in the
+    config-flow UI. Other exceptions bubble up to the caller's
+    `except Exception` branch, which surfaces an "unknown" error.
+    """
     api = KumoCloudAPI(hass)
 
-    try:
-        # Login to verify credentials
-        login_result = await api.login(
-            user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
-        )
+    login_result = await api.login(
+        user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+    )
+    account_info = await api.get_account_info()
+    sites = await api.get_sites()
 
-        # Get account info
-        account_info = await api.get_account_info()
-
-        # Get sites
-        sites = await api.get_sites()
-
-        return {
-            "login_result": login_result,
-            "account_info": account_info,
-            "sites": sites,
-            "api": api,
-        }
-    except KumoCloudAuthError:
-        raise
-    except KumoCloudConnectionError:
-        raise
-    except Exception as err:
-        _LOGGER.exception("Unexpected error during validation: %s", err)
-        raise KumoCloudConnectionError(f"Unexpected error: {err}") from err
+    return {
+        "login_result": login_result,
+        "account_info": account_info,
+        "sites": sites,
+        "api": api,
+    }
 
 
 class KumoCloudConfigFlow(ConfigFlow, domain=DOMAIN):
