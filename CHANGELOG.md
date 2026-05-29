@@ -1,5 +1,53 @@
 # Changelog
 
+## [1.4.1] - 2026-05-29
+
+A cohesion pass: aligns module headers, finishes the exception-narrowing
+work started in 1.3.0, drops dead constants, centralizes token keys,
+removes vestigial helpers, and clarifies a couple of design choices in
+inline comments. No runtime behavior changes; entity registry IDs
+preserved.
+
+### Added
+
+- **Comparison to other Mitsubishi integrations** in the README. Side-by-side
+  framing of when to pick this integration vs. HA Core `mitsubishi_comfort`
+  vs. dlarrick/hass-kumo.
+- **`CONF_ACCESS_TOKEN` / `CONF_REFRESH_TOKEN`** constants. Token keys were
+  previously bare string literals repeated across `__init__.py` and
+  `config_flow.py`.
+
+### Changed
+
+- **Complete exception-narrowing pass.** Three remaining bare
+  `except Exception` sites that the 1.3.0 narrowing missed:
+  `coordinator.async_refresh_device`, `KumoCloudDevice.send_command`,
+  and `config_flow.validate_auth`. Programming errors now propagate
+  with real tracebacks; only the network/timeout family is caught.
+- **`coordinator.py` module header.** Adds the missing module docstring
+  and `from __future__ import annotations` for parity with the rest
+  of the integration.
+- **`climate.py` cleanup.** Removed the redundant `_debug()` wrapper
+  around `_LOGGER.debug` (the latter already short-circuits when
+  DEBUG is disabled); dropped the misleading leading-underscore
+  aliases on `c_to_f` / `f_to_c` imports.
+- **Fork-heritage attributions** removed from module docstrings.
+  Contributors are credited in the README's Credits section.
+
+### Removed
+
+- **Dead constants** `DEVICE_SERIAL`, `ZONE_ID`, `SITE_ID` from
+  `const.py`. They were never imported; the code uses string literals
+  inline.
+
+### Documentation
+
+- `last_hvac_mode.py`: docstring now explains why the cache lives on
+  `hass.data[DOMAIN]` instead of `entry.runtime_data` (must survive
+  config-entry reload).
+- `coordinator.py`: a brief comment above the reactive-auth-refresh
+  branch describes its relationship to `api._ensure_token_valid`.
+
 ## [1.4.0] - 2026-05-29
 
 A handful of additions inspired by patterns from
