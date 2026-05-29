@@ -133,6 +133,57 @@ A 403 from the Kumo Cloud API raises `KumoCloudAuthError`, which Home Assistant
 maps to `ConfigEntryAuthFailed` — surfacing the re-authentication prompt in
 the UI rather than entering a retry loop.
 
+## Comparison to other Mitsubishi integrations
+
+Several Home Assistant integrations talk to Mitsubishi mini-splits. They make
+different tradeoffs; pick whichever matches your setup.
+
+### vs. HA Core [`mitsubishi_comfort`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort) (shipping in 2026.6)
+
+Home Assistant Core gained a first-party `mitsubishi_comfort` integration in
+May 2026, expected in the 2026.6 release. It also talks to the Kumo Cloud V3
+API and is maintained as part of HA Core.
+
+**Choose `mitsubishi_comfort` if** you want the lowest-maintenance path and
+only need climate control. Bugfixes ship with Home Assistant releases.
+
+**Choose this integration if you also want:**
+- Per-zone **standalone temperature and humidity sensor entities**, independent
+  of the climate entity — usable in history graphs, templates, and automations
+  without `state_attr()` indirection
+- **Wireless sensor (PAC-USWHS003-TH-1) entities**: battery, signal strength,
+  temperature, humidity
+- **Filter maintenance reminder** sensor
+- **WiFi adapter firmware and signal strength** as diagnostic sensors
+- **Last-mode memory** across off/on cycles
+
+Different domain names (`kumo_cloud` vs `mitsubishi_comfort`) mean both can be
+installed simultaneously without conflict.
+
+### vs. [dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo)
+
+`hass-kumo` is the long-running community integration. Architecturally it's
+**local-first**: it controls units over your LAN via the encrypted CoAP
+protocol (using the [`pykumo`](https://github.com/dlarrick/pykumo) library),
+with the Kumo Cloud contacted only during initial setup.
+
+**Choose `hass-kumo` if you want:**
+- **Local control** — no cloud round-trips during normal operation; works
+  during internet outages
+- **Outdoor temperature** reporting from a Kumo Station accessory
+- The Mitsubishi Kumo Station thermostat hub features
+
+**Choose this integration if you want:**
+- **Pure cloud setup** with no LAN requirements — your HA instance and your
+  mini-splits don't need to be on the same network
+- Standalone per-zone sensor entities (in `hass-kumo` these live on the
+  climate entity's attributes)
+- **Filter maintenance reminders**
+- No `pykumo` dependency
+
+Different domain names (`kumo_cloud` vs `kumo`) mean both can be installed
+simultaneously without conflict.
+
 ## Fan Speed Reference
 
 | HA Label | Comfort App | API Value |
@@ -158,12 +209,19 @@ the UI rather than entering a retry loop.
 
 ## Credits
 
+### Individual contributors
+
 - [jjustinwilson](https://github.com/jjustinwilson/comfort_HA) — Original integration and V3 API reverse engineering
 - [ekiczek](https://github.com/ekiczek/comfort_HA) — Mitsubishi F/C temperature lookup tables (PR #23, hass-kumo PR #199)
 - [smack000](https://github.com/smack000/comfort_HA) — Command caching, coordinator refactor, sensor entities, auto heat/cool mode
 - [tw3rp](https://github.com/jjustinwilson/comfort_HA/pull/2#issuecomment-2974732965) — Dual setpoint support for auto heat/cool, improved entity availability, API rate limiting with exponential backoff
 - [greginno](https://github.com/jjustinwilson/comfort_HA/issues/26) — Reported and prototyped the `current_humidity` property mapping
 - [mataiwilson](https://github.com/jjustinwilson/comfort_HA/pull/29) — Identified and fixed the swallowed `KumoCloudAuthError` in `login()`
+
+### Patterns adapted from sibling projects
+
+- [dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo) — Diagnostics support, last-HVAC-mode memory pattern, DHCP MAC prefixes, pre-commit configuration, temperature-module extraction.
+- HA Core [mitsubishi_comfort](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort) (by [@nikolairahimi](https://github.com/nikolairahimi)) — `KumoCloudEntity` base class, `ConfigEntry.runtime_data` migration, `hvac_action` lookup-table style.
 
 ## License
 
