@@ -20,7 +20,19 @@ jobs:
           cd custom_components
           zip -r ../kumo_cloud.zip kumo_cloud/
 
+      - name: Extract changelog section
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::No CHANGELOG.md section found for version $VERSION"
+            exit 1
+          fi
+          echo "--- release notes ---"
+          cat release_notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: kumo_cloud.zip
+          body_path: release_notes.md
