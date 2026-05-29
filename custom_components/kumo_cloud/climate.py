@@ -38,13 +38,6 @@ from .const import (
     OPERATION_MODE_AUTO,
     OPERATION_MODE_AUTO_COOL,
     OPERATION_MODE_AUTO_HEAT,
-    FAN_SPEED_AUTO,
-    FAN_SPEED_LOW,
-    FAN_SPEED_MEDIUM,
-    FAN_SPEED_HIGH,
-    AIR_DIRECTION_HORIZONTAL,
-    AIR_DIRECTION_VERTICAL,
-    AIR_DIRECTION_SWING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -214,9 +207,9 @@ _DELTA_MODE_ACTIONS: dict[str, tuple[HVACAction, str, int]] = {
     OPERATION_MODE_AUTO_COOL: (HVACAction.COOLING, "target_temperature_high", -1),
 }
 
-# Legacy constants kept for reference
-KUMO_FAN_SPEEDS = [FAN_SPEED_AUTO, FAN_SPEED_LOW, FAN_SPEED_MEDIUM, FAN_SPEED_HIGH]
-KUMO_AIR_DIRECTIONS = [AIR_DIRECTION_HORIZONTAL, AIR_DIRECTION_VERTICAL, AIR_DIRECTION_SWING]
+# Throttle service calls so a Lovelace card mashing set_temperature does
+# not pile up concurrent requests against the cloud API.
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -244,6 +237,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_name = None
+    _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(self, device: KumoCloudDevice) -> None:
         """Initialize the climate device."""
