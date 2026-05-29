@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .const import CONF_SITE_ID, DOMAIN
@@ -148,6 +149,24 @@ class KumoCloudConfigFlow(ConfigFlow, domain=DOMAIN):
                 "refresh_token": self.api.refresh_token,
             },
         )
+
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle discovery of a Mitsubishi WiFi adapter via DHCP.
+
+        Kumo Cloud is account-scoped (one config entry covers every zone the
+        user owns), so we just prompt the user to set up if they haven't
+        already, and quietly abort otherwise.
+        """
+        _LOGGER.debug(
+            "Discovered Mitsubishi adapter via DHCP: %s (%s)",
+            discovery_info.ip,
+            discovery_info.macaddress,
+        )
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        return await self.async_step_user()
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauth flow."""

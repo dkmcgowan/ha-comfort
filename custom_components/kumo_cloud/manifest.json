@@ -3,7 +3,15 @@
     "name": "Mitsubishi Comfort",
     "codeowners": ["@JoeQuantum"],
     "config_flow": true,
+    "dhcp": [
+        { "macaddress": "24CD8D*" },
+        { "macaddress": "388D3D*" },
+        { "macaddress": "5026EF*" },
+        { "macaddress": "707414*" },
+        { "macaddress": "7087A7*" }
+    ],
     "documentation": "https://github.com/JoeQuantum/comfort_HA/",
+    "homeassistant": "2025.1.0",
     "integration_type": "hub",
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/JoeQuantum/comfort_HA/issues",
