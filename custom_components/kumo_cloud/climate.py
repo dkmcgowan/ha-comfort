@@ -1,12 +1,4 @@
-"""Platform for Kumo Cloud climate integration.
-
-Merged from multiple forks:
-- smack000: Command caching, anti-bounce, coordinator refactor, auto heat/cool,
-  humidity attribute, power-based off detection
-- ekiczek: Mitsubishi proprietary F/C temperature lookup tables (PR #23, PR #199)
-- tw3rp: Dual setpoint support, improved entity availability, API rate limiting
-- Fan/vane UI mapping: Correct Comfort app labels for fan speeds and vane positions
-"""
+"""Climate platform for Kumo Cloud HVAC units."""
 
 from __future__ import annotations
 

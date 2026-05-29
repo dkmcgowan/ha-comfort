@@ -1,11 +1,9 @@
-"""Mitsubishi-specific temperature conversion.
+"""Mitsubishi-specific Fahrenheit/Celsius conversion.
 
 Mitsubishi systems use 0.5 °C steps internally, but their F-to-C mapping
 diverges from standard arithmetic at several setpoints (64–66 °F and
 69–72 °F). These lookup tables match the Comfort app and the physical
 remote exactly; values outside the tables fall back to standard rounding.
-
-Source: ekiczek/comfort_HA PR #23, dlarrick/hass-kumo PR #199.
 """
 
 from __future__ import annotations
