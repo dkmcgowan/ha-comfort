@@ -25,6 +25,12 @@ wireless-sensor entities.
   (the API can lag the actual device by up to a minute)
 - Automatic token refresh, rate-limit handling with exponential backoff,
   graceful degradation through transient API failures
+- Remembers the last HVAC mode you set, so toggling a unit off and back on
+  through the HA UI restores your previous mode instead of defaulting to cool
+- DHCP discovery: when a Mitsubishi WiFi adapter joins the LAN, HA's
+  "Discovered" panel surfaces the integration as a setup prompt
+- HA Download Diagnostics support on the integration and device pages,
+  with credentials, tokens, serials, and MACs redacted
 
 ## Supported devices
 
@@ -59,6 +65,10 @@ automatically.
 All zones in the selected site are discovered automatically. A re-auth prompt
 appears if your password changes; you don't need to delete and re-add the
 integration.
+
+If a Mitsubishi WiFi adapter is already on your network when HA boots, the
+integration will also appear in **Settings → Devices & Services → Discovered**
+as a one-click setup prompt.
 
 ## Entities created
 
