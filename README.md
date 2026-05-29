@@ -82,6 +82,8 @@ When a PAC-USWHS003-TH-1 wireless sensor is attached:
 | `sensor.<zone>_wireless_sensor_temperature` | Wireless sensor temperature |
 | `sensor.<zone>_wireless_sensor_humidity` | Wireless sensor humidity |
 
+All entities for a given indoor unit are grouped under a single HA device. The device page shows the model (e.g. `MSZ-FH09NA`), the unit's firmware (`serialProfile`), and the serial number reported by the Comfort cloud.
+
 ## Behavior notes
 
 ### HVAC idle inference
