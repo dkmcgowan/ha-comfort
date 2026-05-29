@@ -1,7 +1,11 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any
+"""Data update coordinator and per-device wrapper for Kumo Cloud."""
+
+from __future__ import annotations
+
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry

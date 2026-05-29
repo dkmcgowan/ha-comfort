@@ -31,7 +31,7 @@ from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
 from .entity import KumoCloudEntity
 from .last_hvac_mode import recall as recall_last_hvac_mode
 from .last_hvac_mode import remember as remember_last_hvac_mode
-from .temperature import c_to_f as _c_to_f, f_to_c as _f_to_c
+from .temperature import c_to_f, f_to_c
 from .const import (
     OPERATION_MODE_OFF,
     OPERATION_MODE_COOL,
@@ -95,13 +95,6 @@ UI_TO_API_VANE = {
     "highest": "horizontal",
 }
 UI_VANE_ORDER = ["auto", "swing", "lowest", "low", "middle", "high", "highest"]
-
-
-# Debug logging follows HA's log level (no hardcoded flag needed).
-def _debug(msg: str, *args: Any) -> None:
-    """Log only when HA logger is set to DEBUG for this component."""
-    if _LOGGER.isEnabledFor(logging.DEBUG):
-        _LOGGER.debug(msg, *args)
 
 
 # =============================================================================
@@ -228,7 +221,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
     def current_temperature(self) -> float | None:
         """Return the current temperature (converted to Fahrenheit)."""
         adapter = self.device.zone_data.get("adapter", {})
-        return _c_to_f(adapter.get("roomTemp"))
+        return c_to_f(adapter.get("roomTemp"))
 
     @property
     def current_humidity(self) -> float | None:
@@ -244,9 +237,9 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         hvac_mode = self.hvac_mode
 
         if hvac_mode == HVACMode.COOL:
-            return _c_to_f(adapter.get("spCool"))
+            return c_to_f(adapter.get("spCool"))
         elif hvac_mode == HVACMode.HEAT:
-            return _c_to_f(adapter.get("spHeat"))
+            return c_to_f(adapter.get("spHeat"))
 
         # HEAT_COOL uses target_temperature_high/low instead
         return None
@@ -257,7 +250,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         if self.hvac_mode == HVACMode.HEAT_COOL:
             adapter = self.device.zone_data.get("adapter", {})
             device_data = self.device.device_data
-            return _c_to_f(device_data.get("spCool", adapter.get("spCool")))
+            return c_to_f(device_data.get("spCool", adapter.get("spCool")))
         return None
 
     @property
@@ -266,7 +259,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         if self.hvac_mode == HVACMode.HEAT_COOL:
             adapter = self.device.zone_data.get("adapter", {})
             device_data = self.device.device_data
-            return _c_to_f(device_data.get("spHeat", adapter.get("spHeat")))
+            return c_to_f(device_data.get("spHeat", adapter.get("spHeat")))
         return None
 
     @property
@@ -277,8 +270,8 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
             profile_data = profile[0] if isinstance(profile, list) else profile
             min_setpoints = profile_data.get("minimumSetPoints", {})
             min_c = min(min_setpoints.get("heat", 16), min_setpoints.get("cool", 16))
-            return _c_to_f(min_c)
-        return _c_to_f(16.0)
+            return c_to_f(min_c)
+        return c_to_f(16.0)
 
     @property
     def max_temp(self) -> float:
@@ -288,8 +281,8 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
             profile_data = profile[0] if isinstance(profile, list) else profile
             max_setpoints = profile_data.get("maximumSetPoints", {})
             max_c = max(max_setpoints.get("heat", 30), max_setpoints.get("cool", 30))
-            return _c_to_f(max_c)
-        return _c_to_f(30.0)
+            return c_to_f(max_c)
+        return c_to_f(30.0)
 
     @property
     def target_temperature_step(self) -> float:
@@ -388,9 +381,9 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         device_data = self.device.device_data
         adapter = self.device.zone_data.get("adapter", {})
         fan_speed = device_data.get("fanSpeed", adapter.get("fanSpeed"))
-        _debug("API returned fanSpeed for %s: %s", self.device.device_serial, fan_speed)
+        _LOGGER.debug("API returned fanSpeed for %s: %s", self.device.device_serial, fan_speed)
         ui_label = API_TO_UI_FAN.get(fan_speed, fan_speed)
-        _debug("HA presenting fan mode for %s as: %s", self.device.device_serial, ui_label)
+        _LOGGER.debug("HA presenting fan mode for %s as: %s", self.device.device_serial, ui_label)
         return ui_label
 
     @property
@@ -406,7 +399,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         device_data = self.device.device_data
         adapter = self.device.zone_data.get("adapter", {})
         swing = device_data.get("airDirection", adapter.get("airDirection"))
-        _debug("API returned airDirection for %s: %s", self.device.device_serial, swing)
+        _LOGGER.debug("API returned airDirection for %s: %s", self.device.device_serial, swing)
         return API_TO_UI_VANE.get(swing, swing)
 
     @property
@@ -443,7 +436,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
 
     async def _send_command_and_refresh(self, commands: dict[str, Any]) -> None:
         """Send command, cache it to prevent bounce, and refresh."""
-        _debug("HA sending command to %s: %s", self.device.device_serial, commands)
+        _LOGGER.debug("HA sending command to %s: %s", self.device.device_serial, commands)
 
         # Cache the command first so UI updates immediately
         self.device.cache_commands(commands)
@@ -494,12 +487,12 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
             current_high_c = device_data.get("spCool", adapter.get("spCool"))
 
             if low_f is not None:
-                commands["spHeat"] = _f_to_c(low_f)
+                commands["spHeat"] = f_to_c(low_f)
             elif current_low_c is not None:
                 commands["spHeat"] = current_low_c
 
             if high_f is not None:
-                commands["spCool"] = _f_to_c(high_f)
+                commands["spCool"] = f_to_c(high_f)
             elif current_high_c is not None:
                 commands["spCool"] = current_high_c
 
@@ -512,7 +505,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         if target_temp_f is None:
             return
 
-        target_temp_c = _f_to_c(target_temp_f)
+        target_temp_c = f_to_c(target_temp_f)
         hvac_mode = self.hvac_mode
 
         if hvac_mode == HVACMode.COOL:
@@ -538,13 +531,13 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set new target fan mode (accepts UI label, sends API value)."""
         api_value = UI_TO_API_FAN.get(fan_mode.lower(), fan_mode)
-        _debug("Setting fan mode: UI '%s' -> API '%s'", fan_mode, api_value)
+        _LOGGER.debug("Setting fan mode: UI '%s' -> API '%s'", fan_mode, api_value)
         await self._send_command_and_refresh({"fanSpeed": api_value})
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set vane position (accepts UI label, sends API value)."""
         api_value = UI_TO_API_VANE.get(swing_mode.lower(), swing_mode)
-        _debug("Setting swing mode: UI '%s' -> API '%s'", swing_mode, api_value)
+        _LOGGER.debug("Setting swing mode: UI '%s' -> API '%s'", swing_mode, api_value)
         await self._send_command_and_refresh({"airDirection": api_value})
 
     async def async_turn_on(self) -> None:
