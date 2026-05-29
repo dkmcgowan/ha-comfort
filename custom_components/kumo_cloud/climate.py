@@ -404,9 +404,28 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
         if operation_mode == OPERATION_MODE_OFF or power == 0:
             return HVACAction.OFF
 
+        # The Kumo API does not expose a real "compressor running" signal, so we
+        # infer IDLE from the current vs. target delta. 1.0 °F matches the
+        # generic-AUTO branch below.
+        current_temp = self.current_temperature
+
         if operation_mode == OPERATION_MODE_COOL:
+            target_temp = self.target_temperature
+            if (
+                current_temp is not None
+                and target_temp is not None
+                and current_temp <= target_temp - 1.0
+            ):
+                return HVACAction.IDLE
             return HVACAction.COOLING
         elif operation_mode == OPERATION_MODE_HEAT:
+            target_temp = self.target_temperature
+            if (
+                current_temp is not None
+                and target_temp is not None
+                and current_temp >= target_temp + 1.0
+            ):
+                return HVACAction.IDLE
             return HVACAction.HEATING
         elif operation_mode == OPERATION_MODE_DRY:
             return HVACAction.DRYING
@@ -414,12 +433,25 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
             return HVACAction.FAN
         elif operation_mode in (OPERATION_MODE_AUTO, OPERATION_MODE_AUTO_COOL, OPERATION_MODE_AUTO_HEAT):
             if operation_mode == OPERATION_MODE_AUTO_COOL:
+                target_temp = self.target_temperature_high
+                if (
+                    current_temp is not None
+                    and target_temp is not None
+                    and current_temp <= target_temp - 1.0
+                ):
+                    return HVACAction.IDLE
                 return HVACAction.COOLING
             elif operation_mode == OPERATION_MODE_AUTO_HEAT:
+                target_temp = self.target_temperature_low
+                if (
+                    current_temp is not None
+                    and target_temp is not None
+                    and current_temp >= target_temp + 1.0
+                ):
+                    return HVACAction.IDLE
                 return HVACAction.HEATING
 
             # Generic auto: infer from temperature difference
-            current_temp = self.current_temperature
             target_temp = self.target_temperature_high or self.target_temperature
 
             if current_temp is not None and target_temp is not None:
