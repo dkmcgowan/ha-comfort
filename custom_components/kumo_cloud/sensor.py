@@ -37,12 +37,10 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator, KumoCloudDevice
-from .const import DOMAIN
+from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
+from .entity import KumoCloudEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,70 +63,57 @@ async def async_setup_entry(
             device = KumoCloudDevice(coordinator, zone_id, device_serial)
 
             # Indoor unit sensors (always available)
-            entities.append(KumoCloudTemperatureSensor(coordinator, device))
-            entities.append(KumoCloudHumiditySensor(coordinator, device))
+            entities.append(KumoCloudTemperatureSensor(device))
+            entities.append(KumoCloudHumiditySensor(device))
 
             # Diagnostic sensors from /status endpoint (always available)
-            entities.append(KumoCloudFirmwareSensor(coordinator, device))
-            entities.append(KumoCloudWiFiSignalSensor(coordinator, device))
-            entities.append(KumoCloudFilterReminderSensor(coordinator, device))
+            entities.append(KumoCloudFirmwareSensor(device))
+            entities.append(KumoCloudWiFiSignalSensor(device))
+            entities.append(KumoCloudFilterReminderSensor(device))
 
             # Wireless sensor entities (only if hasSensor is true)
             if has_sensor:
-                entities.append(KumoCloudWirelessBatterySensor(coordinator, device))
-                entities.append(KumoCloudWirelessSignalSensor(coordinator, device))
-                entities.append(KumoCloudWirelessTemperatureSensor(coordinator, device))
-                entities.append(KumoCloudWirelessHumiditySensor(coordinator, device))
+                entities.append(KumoCloudWirelessBatterySensor(device))
+                entities.append(KumoCloudWirelessSignalSensor(device))
+                entities.append(KumoCloudWirelessTemperatureSensor(device))
+                entities.append(KumoCloudWirelessHumiditySensor(device))
 
     async_add_entities(entities)
-
-
-def _device_info(device: KumoCloudDevice) -> DeviceInfo:
-    """Return standard device info for all sensors."""
-    return DeviceInfo(
-        identifiers={(DOMAIN, device.device_serial)},
-        name=device.zone_data.get("name", "Kumo Cloud Device"),
-        manufacturer="Mitsubishi Electric",
-    )
 
 
 # =============================================================================
 # Indoor unit sensors
 # =============================================================================
 
-class KumoCloudTemperatureSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
     """Temperature from the indoor unit's built-in thermistor."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Temperature"
+    _attr_name = "Temperature"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_temperature"
-        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-        self._attr_device_class = SensorDeviceClass.TEMPERATURE
-        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self) -> float | None:
         adapter = self.device.zone_data.get("adapter", {})
         return adapter.get("roomTemp")
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudHumiditySensor(CoordinatorEntity, SensorEntity):
+class KumoCloudHumiditySensor(KumoCloudEntity, SensorEntity):
     """Humidity from the indoor unit."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Humidity"
+    _attr_name = "Humidity"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_humidity"
-        self._attr_native_unit_of_measurement = PERCENTAGE
-        self._attr_device_class = SensorDeviceClass.HUMIDITY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self) -> float | None:
@@ -136,25 +121,21 @@ class KumoCloudHumiditySensor(CoordinatorEntity, SensorEntity):
         device_data = self.device.device_data
         return device_data.get("humidity", adapter.get("humidity"))
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
-
 
 # =============================================================================
 # Diagnostic sensors from /devices/{serial}/status
 # =============================================================================
 
-class KumoCloudFirmwareSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudFirmwareSensor(KumoCloudEntity, SensorEntity):
     """WiFi adapter firmware version."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Firmware"
+    _attr_name = "Firmware"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:chip"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_firmware"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_icon = "mdi:chip"
 
     @property
     def native_value(self) -> str | None:
@@ -163,23 +144,19 @@ class KumoCloudFirmwareSensor(CoordinatorEntity, SensorEntity):
             return None
         return status.get("firmwareVersion")
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudWiFiSignalSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudWiFiSignalSensor(KumoCloudEntity, SensorEntity):
     """WiFi adapter signal strength to the router."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} WiFi Signal"
+    _attr_name = "WiFi Signal"
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wifi_rssi"
-        self._attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
-        self._attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> int | None:
@@ -196,22 +173,18 @@ class KumoCloudWiFiSignalSensor(CoordinatorEntity, SensorEntity):
             return {"router_ssid": status["routerSsid"]}
         return {}
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudFilterReminderSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudFilterReminderSensor(KumoCloudEntity, SensorEntity):
     """Last filter dirty reminder date."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Filter Reminder"
+    _attr_name = "Filter Reminder"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:air-filter"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_filter_reminder"
-        self._attr_device_class = SensorDeviceClass.TIMESTAMP
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_icon = "mdi:air-filter"
 
     @property
     def native_value(self) -> datetime | None:
@@ -241,27 +214,23 @@ class KumoCloudFilterReminderSensor(CoordinatorEntity, SensorEntity):
             return attrs
         return {}
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
-
 
 # =============================================================================
 # Wireless sensor entities (PAC-USWHS003-TH-1)
 # =============================================================================
 
-class KumoCloudWirelessBatterySensor(CoordinatorEntity, SensorEntity):
+class KumoCloudWirelessBatterySensor(KumoCloudEntity, SensorEntity):
     """Battery level of the wireless temperature/humidity sensor."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Wireless Sensor Battery"
+    _attr_name = "Wireless Sensor Battery"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_battery"
-        self._attr_native_unit_of_measurement = PERCENTAGE
-        self._attr_device_class = SensorDeviceClass.BATTERY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> int | None:
@@ -270,23 +239,19 @@ class KumoCloudWirelessBatterySensor(CoordinatorEntity, SensorEntity):
             return None
         return sensor_data.get("battery")
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudWirelessSignalSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudWirelessSignalSensor(KumoCloudEntity, SensorEntity):
     """Signal strength (RSSI) of the wireless sensor to the WiFi adapter."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Wireless Sensor Signal"
+    _attr_name = "Wireless Sensor Signal"
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_rssi"
-        self._attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
-        self._attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> int | None:
@@ -295,22 +260,18 @@ class KumoCloudWirelessSignalSensor(CoordinatorEntity, SensorEntity):
             return None
         return sensor_data.get("rssi")
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudWirelessTemperatureSensor(CoordinatorEntity, SensorEntity):
+class KumoCloudWirelessTemperatureSensor(KumoCloudEntity, SensorEntity):
     """Temperature reading from the wireless sensor itself."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Wireless Sensor Temperature"
+    _attr_name = "Wireless Sensor Temperature"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_temperature"
-        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-        self._attr_device_class = SensorDeviceClass.TEMPERATURE
-        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self) -> float | None:
@@ -322,22 +283,18 @@ class KumoCloudWirelessTemperatureSensor(CoordinatorEntity, SensorEntity):
             return round(temp, 1)
         return None
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)
 
-
-class KumoCloudWirelessHumiditySensor(CoordinatorEntity, SensorEntity):
+class KumoCloudWirelessHumiditySensor(KumoCloudEntity, SensorEntity):
     """Humidity reading from the wireless sensor itself."""
 
-    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator, device: KumoCloudDevice) -> None:
-        super().__init__(coordinator)
-        self.device = device
-        self._attr_name = f"{device.zone_data.get('name', 'Kumo Cloud')} Wireless Sensor Humidity"
+    _attr_name = "Wireless Sensor Humidity"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_humidity"
-        self._attr_native_unit_of_measurement = PERCENTAGE
-        self._attr_device_class = SensorDeviceClass.HUMIDITY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self) -> float | None:
@@ -348,7 +305,3 @@ class KumoCloudWirelessHumiditySensor(CoordinatorEntity, SensorEntity):
         if humidity is not None:
             return round(humidity, 1)
         return None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return _device_info(self.device)

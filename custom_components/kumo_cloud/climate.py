@@ -25,13 +25,11 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator, KumoCloudDevice
+from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
+from .entity import KumoCloudEntity
 from .const import (
-    DOMAIN,
     OPERATION_MODE_OFF,
     OPERATION_MODE_COOL,
     OPERATION_MODE_HEAT,
@@ -241,17 +239,15 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
+class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
     """Representation of a Kumo Cloud climate device."""
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
-    _attr_has_entity_name = True
     _attr_name = None
 
     def __init__(self, device: KumoCloudDevice) -> None:
         """Initialize the climate device."""
-        super().__init__(device.coordinator)
-        self.device = device
+        super().__init__(device)
         self._attr_unique_id = device.unique_id
 
         # Set up supported features based on device profile
@@ -284,25 +280,6 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
                 features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
 
         self._attr_supported_features = features
-
-    # ---- Device info --------------------------------------------------------
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        zone_data = self.device.zone_data
-        device_data = self.device.device_data
-
-        model = device_data.get("model", {}).get("materialDescription", "Unknown Model")
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, self.device.device_serial)},
-            name=zone_data.get("name", "Kumo Cloud Device"),
-            manufacturer="Mitsubishi Electric",
-            model=model,
-            sw_version=device_data.get("model", {}).get("serialProfile"),
-            serial_number=device_data.get("serialNumber"),
-        )
 
     # ---- Temperature properties ---------------------------------------------
 
