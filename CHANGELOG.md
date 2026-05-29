@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.3.0] - 2026-05-29
+
+A quality pass aligning the integration with current Home Assistant
+patterns, partly inspired by the upstream `mitsubishi_comfort`
+integration that landed in HA Core (`dev` branch, May 2026). No
+runtime behaviour changes; entity registry IDs are preserved.
+
+### Added
+
+- **`KumoCloudEntity` base class** in `entity.py`. Shared scaffolding
+  (coordinator wiring, `device_info`, `has_entity_name = True`) lifted
+  out of every entity. Side effect: sensors now also report `model`,
+  `sw_version`, and `serial_number` -- previously only the climate
+  entity did.
+- **HACS Validation workflow** runs `hacs/action` on every push and PR
+  (the `brands` check is ignored pending an upstream brands submission).
+
+### Changed
+
+- **`hvac_action` now uses lookup tables** (`_DIRECT_MODE_ACTIONS`,
+  `_DELTA_MODE_ACTIONS`) instead of a ~70-line if/elif chain. The
+  1.0 °F deadband is now a single tunable `HVAC_ACTION_DEADBAND_F`
+  module constant.
+- **Coordinator is stored on `entry.runtime_data`** instead of
+  `hass.data[DOMAIN][entry.entry_id]`. New typed alias
+  `KumoCloudConfigEntry = ConfigEntry[KumoCloudDataUpdateCoordinator]`.
+- **`PARALLEL_UPDATES = 1`** on both climate and sensor platforms to
+  prevent bursty Lovelace calls from piling up against the cloud API.
+- **`_enable_turn_on_off_backwards_compatibility = False`** on the
+  climate entity (opts out of the deprecated HA shim).
+- **Coordinator `_async_update_data` catches narrower exceptions**
+  (`aiohttp.ClientError`, `OSError`, `asyncio.TimeoutError`) instead
+  of a bare `except Exception`. Programming errors propagate normally.
+- **Manifest:** added `integration_type: hub`, `quality_scale: bronze`;
+  dropped the `aiohttp>=3.8.0` pin (HA pins its own).
+
+### Fixed
+
+- **`string.json` -> `strings.json`.** HA's loader expects the plural
+  form; the mistyped filename meant translations were silently ignored
+  and config flow strings fell back to keys.
+
+### Removed
+
+- **Unused legacy constants:** `KUMO_FAN_SPEEDS`, `KUMO_AIR_DIRECTIONS`,
+  and the `FAN_SPEED_*` / `AIR_DIRECTION_*` set in `const.py` that only
+  fed those lists. Live fan/vane handling has used the `API_TO_UI_*` /
+  `UI_TO_API_*` mapping dicts for some time.
+- **Duplicate `device_info` properties** across all entity classes
+  (replaced by `KumoCloudEntity.device_info`).
+
 ## [1.2.1] - 2026-05-29
 
 ### Changed
