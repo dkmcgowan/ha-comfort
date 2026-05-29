@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.2.0] - 2026-05-29
+
+### Added
+- **`current_humidity` property on climate entities.** The V3 API adapter payload
+  includes a humidity reading for zones with a wireless sensor (PAC-USWHS003-TH-1).
+  Mapping it to `ClimateEntity`'s canonical property means standard HA cards
+  (tile, thermostat) render humidity automatically — no templating needed.
+  Requested in jjustinwilson/comfort_HA#26 by @greginno.
+
+### Changed
+- **Breaking: removed the `humidity` extra_state_attribute.** The same value is
+  now exposed as `current_humidity` (see above). Templates that previously
+  referenced `state_attr('climate.X', 'humidity')` should switch to
+  `state_attr('climate.X', 'current_humidity')`.
+
+### Fixed
+- **`hvac_action` now reports `IDLE` when at setpoint.** The Kumo Cloud V3 API
+  does not expose a real "compressor running" signal, so the integration
+  previously reported `HEATING`/`COOLING` continuously whenever a unit was on
+  in that mode — wrong for tile glow, energy dashboards, history graphs, and
+  any automation keyed on `hvac_action`. Mirrors the generic-AUTO branch's
+  existing temp-delta heuristic: HEAT/COOL/AUTO_HEAT/AUTO_COOL flip to `IDLE`
+  once the room passes setpoint by ≥1.0 °F.
+- **Wrong password at initial login now triggers re-auth, not a retry loop.**
+  `KumoCloudAuthError` raised on HTTP 403 was being swallowed by the broad
+  `except Exception` handler in `login()` and re-wrapped as
+  `KumoCloudConnectionError`, so HA saw `ConfigEntryNotReady` (retry forever)
+  instead of `ConfigEntryAuthFailed` (re-auth prompt in the UI).
+  Inspired by jjustinwilson/comfort_HA#29 by @mataiwilson.
+
 ## [1.1.1] - 2026-05-11
 
 ### Fixed
