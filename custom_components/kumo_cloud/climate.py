@@ -288,6 +288,13 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
         return _c_to_f(adapter.get("roomTemp"))
 
     @property
+    def current_humidity(self) -> float | None:
+        """Return the current humidity from the wireless sensor, if present."""
+        adapter = self.device.zone_data.get("adapter", {})
+        device_data = self.device.device_data
+        return device_data.get("humidity", adapter.get("humidity"))
+
+    @property
     def target_temperature(self) -> float | None:
         """Return the target temperature for single-setpoint modes."""
         adapter = self.device.zone_data.get("adapter", {})
@@ -508,19 +515,6 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
         return UI_VANE_ORDER.copy()
 
     # ---- Misc properties ----------------------------------------------------
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the optional state attributes."""
-        attributes = super().extra_state_attributes or {}
-
-        adapter = self.device.zone_data.get("adapter", {})
-        device_data = self.device.device_data
-        humidity = device_data.get("humidity", adapter.get("humidity"))
-        if humidity is not None:
-            attributes["humidity"] = humidity
-
-        return attributes
 
     @property
     def available(self) -> bool:
