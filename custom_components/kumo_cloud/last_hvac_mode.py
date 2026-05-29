@@ -6,8 +6,11 @@ it set to before. This module keeps a small in-memory map of the last
 active mode per entity so `async_turn_on()` can restore it instead of
 defaulting to e.g. cool.
 
-The store is not persisted across HA restarts -- if HA restarts while a
-unit is OFF, we fall back to the existing "default to cool" behavior.
+The store lives on `hass.data[DOMAIN]` rather than on the coordinator's
+`runtime_data`. Reason: the cache is keyed by entity `unique_id` and we
+want it to survive a config-entry reload (e.g. when the user updates
+credentials). It does NOT survive an HA restart -- if HA restarts while
+a unit is OFF, we fall back to the "default to cool" behavior.
 """
 
 from __future__ import annotations

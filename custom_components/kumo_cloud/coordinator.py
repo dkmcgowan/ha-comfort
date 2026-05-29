@@ -131,10 +131,12 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             }
 
         except KumoCloudAuthError as err:
-            # Try to refresh token once
+            # Reactive token refresh: a 401 surfaced mid-poll, despite
+            # `api._ensure_token_valid` doing proactive refresh on each call.
+            # Try to refresh once and replay the poll; if that fails, give up
+            # and let HA mark the entry stale / trigger a re-auth flow.
             try:
                 await self.api.refresh_access_token()
-                # Retry the request
                 return await self._async_update_data()
             except KumoCloudAuthError as refresh_err:
                 raise UpdateFailed(
