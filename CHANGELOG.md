@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.4.0] - 2026-05-29
+
+A handful of additions inspired by patterns from
+[dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo). Cloud-only
+architecture is unchanged; nothing in this release requires a network
+change.
+
+### Added
+
+- **HA Download Diagnostics support.** The integration page and each
+  device page now have a "Download Diagnostics" button that produces
+  a JSON snapshot of the coordinator's state. Credentials, tokens,
+  serial numbers, MAC addresses, and SSIDs are redacted from the
+  output. See `diagnostics.py`.
+- **Remember last HVAC mode across off/on cycles.** When a user turns
+  a unit off and back on via the HA UI, restore whichever mode they
+  had set previously instead of falling back to the device-reported
+  mode (which can stale to cool). In-memory only; an HA restart while
+  a unit is off falls back to the previous behavior. See
+  `last_hvac_mode.py`.
+- **DHCP discovery.** Five Mitsubishi WiFi-adapter MAC prefixes
+  (24CD8D, 388D3D, 5026EF, 707414, 7087A7) are now registered. HA's
+  "Discovered" panel will surface the integration when a Mitsubishi
+  adapter joins the network. Clicking through routes to the normal
+  credentials step, or aborts cleanly if the account is already set up.
+- **Declared HA minimum version `2025.1.0`** in both `manifest.json`
+  and `hacs.json`. HACS now gates installs on the HA version.
+
+### Changed
+
+- **F<->C conversion extracted into `temperature.py`.** The Mitsubishi
+  lookup tables and helper functions are now an independent module,
+  unit-testable in isolation. No behavior change for `climate.py`
+  callers.
+
+### Dev infrastructure
+
+- **`.pre-commit-config.yaml` + `.codespellrc`** added. Contributors
+  who install pre-commit get automatic ruff lint/format, codespell
+  typo detection, and basic file-hygiene hooks. Not used at runtime.
+
 ## [1.3.0] - 2026-05-29
 
 A quality pass aligning the integration with current Home Assistant
