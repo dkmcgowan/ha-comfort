@@ -4,11 +4,14 @@ import asyncio
 import logging
 
 import aiohttp
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
+
+type KumoCloudConfigEntry = ConfigEntry["KumoCloudDataUpdateCoordinator"]
 
 _LOGGER = logging.getLogger(__name__)
 

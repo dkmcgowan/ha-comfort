@@ -30,7 +30,6 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     EntityCategory,
     PERCENTAGE,
@@ -42,7 +41,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import KumoCloudDataUpdateCoordinator, KumoCloudDevice
+from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator, KumoCloudDevice
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,11 +49,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: KumoCloudConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Kumo Cloud sensor devices."""
-    coordinator: KumoCloudDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     entities = []
     for zone in coordinator.zones:

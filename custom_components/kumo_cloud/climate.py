@@ -23,14 +23,13 @@ from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import KumoCloudDataUpdateCoordinator, KumoCloudDevice
+from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator, KumoCloudDevice
 from .const import (
     DOMAIN,
     OPERATION_MODE_OFF,
@@ -224,11 +223,11 @@ KUMO_AIR_DIRECTIONS = [AIR_DIRECTION_HORIZONTAL, AIR_DIRECTION_VERTICAL, AIR_DIR
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: KumoCloudConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Kumo Cloud climate devices."""
-    coordinator: KumoCloudDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     entities = []
     for zone in coordinator.zones:
