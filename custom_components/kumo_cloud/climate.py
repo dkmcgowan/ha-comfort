@@ -191,6 +191,32 @@ HVAC_TO_KUMO_MODE = {
     HVACMode.HEAT_COOL: OPERATION_MODE_AUTO,
 }
 
+# =============================================================================
+# HVAC action inference
+# =============================================================================
+# The Kumo Cloud REST API does not expose a "compressor running" signal.
+# IDLE is inferred from the current-vs-target temperature delta using
+# a 1.0 °F deadband.
+
+HVAC_ACTION_DEADBAND_F = 1.0
+
+# Modes that map directly to an action with no delta-based IDLE.
+_DIRECT_MODE_ACTIONS: dict[str, HVACAction] = {
+    OPERATION_MODE_DRY: HVACAction.DRYING,
+    OPERATION_MODE_VENT: HVACAction.FAN,
+}
+
+# Modes with temperature-based IDLE inference. The tuple is
+# (action-when-active, setpoint-property-name, sign) where
+# sign = +1 -> HEATING (IDLE when current >= target + deadband)
+# sign = -1 -> COOLING (IDLE when current <= target - deadband)
+_DELTA_MODE_ACTIONS: dict[str, tuple[HVACAction, str, int]] = {
+    OPERATION_MODE_HEAT:      (HVACAction.HEATING, "target_temperature",      +1),
+    OPERATION_MODE_AUTO_HEAT: (HVACAction.HEATING, "target_temperature_low",  +1),
+    OPERATION_MODE_COOL:      (HVACAction.COOLING, "target_temperature",      -1),
+    OPERATION_MODE_AUTO_COOL: (HVACAction.COOLING, "target_temperature_high", -1),
+}
+
 # Legacy constants kept for reference
 KUMO_FAN_SPEEDS = [FAN_SPEED_AUTO, FAN_SPEED_LOW, FAN_SPEED_MEDIUM, FAN_SPEED_HIGH]
 KUMO_AIR_DIRECTIONS = [AIR_DIRECTION_HORIZONTAL, AIR_DIRECTION_VERTICAL, AIR_DIRECTION_SWING]
@@ -411,64 +437,29 @@ class KumoCloudClimate(CoordinatorEntity, ClimateEntity):
         if operation_mode == OPERATION_MODE_OFF or power == 0:
             return HVACAction.OFF
 
-        # The Kumo API does not expose a real "compressor running" signal, so we
-        # infer IDLE from the current vs. target delta. 1.0 °F matches the
-        # generic-AUTO branch below.
-        current_temp = self.current_temperature
+        if operation_mode in _DIRECT_MODE_ACTIONS:
+            return _DIRECT_MODE_ACTIONS[operation_mode]
 
-        if operation_mode == OPERATION_MODE_COOL:
-            target_temp = self.target_temperature
-            if (
-                current_temp is not None
-                and target_temp is not None
-                and current_temp <= target_temp - 1.0
-            ):
-                return HVACAction.IDLE
-            return HVACAction.COOLING
-        elif operation_mode == OPERATION_MODE_HEAT:
-            target_temp = self.target_temperature
-            if (
-                current_temp is not None
-                and target_temp is not None
-                and current_temp >= target_temp + 1.0
-            ):
-                return HVACAction.IDLE
-            return HVACAction.HEATING
-        elif operation_mode == OPERATION_MODE_DRY:
-            return HVACAction.DRYING
-        elif operation_mode == OPERATION_MODE_VENT:
-            return HVACAction.FAN
-        elif operation_mode in (OPERATION_MODE_AUTO, OPERATION_MODE_AUTO_COOL, OPERATION_MODE_AUTO_HEAT):
-            if operation_mode == OPERATION_MODE_AUTO_COOL:
-                target_temp = self.target_temperature_high
-                if (
-                    current_temp is not None
-                    and target_temp is not None
-                    and current_temp <= target_temp - 1.0
-                ):
+        if operation_mode in _DELTA_MODE_ACTIONS:
+            action, setpoint_attr, sign = _DELTA_MODE_ACTIONS[operation_mode]
+            current = self.current_temperature
+            target = getattr(self, setpoint_attr)
+            if current is not None and target is not None:
+                if sign > 0 and current >= target + HVAC_ACTION_DEADBAND_F:
                     return HVACAction.IDLE
-                return HVACAction.COOLING
-            elif operation_mode == OPERATION_MODE_AUTO_HEAT:
-                target_temp = self.target_temperature_low
-                if (
-                    current_temp is not None
-                    and target_temp is not None
-                    and current_temp >= target_temp + 1.0
-                ):
+                if sign < 0 and current <= target - HVAC_ACTION_DEADBAND_F:
                     return HVACAction.IDLE
-                return HVACAction.HEATING
+            return action
 
-            # Generic auto: infer from temperature difference
-            target_temp = self.target_temperature_high or self.target_temperature
-
-            if current_temp is not None and target_temp is not None:
-                temp_diff = current_temp - target_temp
-                if temp_diff > 1.0:
+        if operation_mode == OPERATION_MODE_AUTO:
+            current = self.current_temperature
+            target = self.target_temperature_high or self.target_temperature
+            if current is not None and target is not None:
+                diff = current - target
+                if diff > HVAC_ACTION_DEADBAND_F:
                     return HVACAction.COOLING
-                elif temp_diff < -1.0:
+                if diff < -HVAC_ACTION_DEADBAND_F:
                     return HVACAction.HEATING
-
-            return HVACAction.IDLE
 
         return HVACAction.IDLE
 
