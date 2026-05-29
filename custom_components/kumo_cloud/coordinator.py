@@ -3,6 +3,7 @@ from typing import Any
 import asyncio
 import logging
 
+import aiohttp
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
 
@@ -132,14 +133,14 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(
                     f"Authentication failed: {refresh_err}"
                 ) from refresh_err
-            except Exception as refresh_err:
+            except (KumoCloudConnectionError, aiohttp.ClientError, OSError, asyncio.TimeoutError) as refresh_err:
                 raise UpdateFailed(
                     f"Error during token refresh: {refresh_err}"
                 ) from refresh_err
         except KumoCloudConnectionError as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
-        except Exception as err:
-            raise UpdateFailed(f"Unexpected error: {err}") from err
+        except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as err:
+            raise UpdateFailed(f"Connection error: {err}") from err
 
     async def async_refresh_device(self, device_serial: str) -> None:
         """Refresh a specific device's data immediately."""
