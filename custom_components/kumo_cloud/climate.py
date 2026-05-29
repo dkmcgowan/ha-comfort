@@ -29,6 +29,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
 from .entity import KumoCloudEntity
+from .last_hvac_mode import recall as recall_last_hvac_mode
+from .last_hvac_mode import remember as remember_last_hvac_mode
 from .temperature import c_to_f as _c_to_f, f_to_c as _f_to_c
 from .const import (
     OPERATION_MODE_OFF,
@@ -455,6 +457,7 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target HVAC mode."""
+        remember_last_hvac_mode(self.hass, self._attr_unique_id, hvac_mode)
         if hvac_mode == HVACMode.OFF:
             await self._send_command_and_refresh({"operationMode": OPERATION_MODE_OFF})
         else:
@@ -545,16 +548,26 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         await self._send_command_and_refresh({"airDirection": api_value})
 
     async def async_turn_on(self) -> None:
-        """Turn the entity on."""
+        """Turn the entity on.
+
+        Restores the last mode the user explicitly set if we remember it,
+        otherwise falls back to whatever the device reports (or COOL if
+        the device is currently OFF).
+        """
         adapter = self.device.zone_data.get("adapter", {})
         device_data = self.device.device_data
 
-        operation_mode = device_data.get(
-            "operationMode", adapter.get("operationMode", OPERATION_MODE_COOL)
+        last = recall_last_hvac_mode(
+            self.hass, self._attr_unique_id, self.hvac_modes
         )
-
-        if operation_mode == OPERATION_MODE_OFF:
-            operation_mode = OPERATION_MODE_COOL
+        if last is not None:
+            operation_mode = HVAC_TO_KUMO_MODE.get(last, OPERATION_MODE_COOL)
+        else:
+            operation_mode = device_data.get(
+                "operationMode", adapter.get("operationMode", OPERATION_MODE_COOL)
+            )
+            if operation_mode == OPERATION_MODE_OFF:
+                operation_mode = OPERATION_MODE_COOL
 
         commands = {"operationMode": operation_mode}
 
