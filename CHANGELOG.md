@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1] - 2026-05-29
+
+### Changed
+
+- **CI: HACS validation workflow.** Adds `validate.yml` running `hacs/action` against this repo as an integration on every push and pull request, catching HACS-side problems (missing fields, disabled Issues, missing topics) before they surface to end users. The `brands` check is currently ignored.
+- **CI: release notes now auto-populated from CHANGELOG.md.** The tag-triggered release workflow extracts the matching `## [VERSION]` section from `CHANGELOG.md` and uses it as the GitHub release body. The workflow hard-fails if the tag has no corresponding entry, preventing empty releases from shipping.
+
+No runtime changes — the `kumo_cloud` integration artifact is identical to v1.2.0.
+
 ## [1.2.0] - 2026-05-29
 
 ### Added
