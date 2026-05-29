@@ -1,0 +1,3 @@
+[codespell]
+skip = .git,*.lock,*.log
+ignore-words-list = hass
