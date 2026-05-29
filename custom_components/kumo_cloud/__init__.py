@@ -11,7 +11,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator
-from .const import CONF_SITE_ID
+from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_SITE_ID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,10 +22,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) ->
 
     api = KumoCloudAPI(hass)
 
-    if "access_token" in entry.data:
+    if CONF_ACCESS_TOKEN in entry.data:
         api.username = entry.data[CONF_USERNAME]
-        api.access_token = entry.data["access_token"]
-        api.refresh_token = entry.data["refresh_token"]
+        api.access_token = entry.data[CONF_ACCESS_TOKEN]
+        api.refresh_token = entry.data[CONF_REFRESH_TOKEN]
 
     try:
         if not api.access_token:

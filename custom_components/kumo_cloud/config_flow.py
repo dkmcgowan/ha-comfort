@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
-from .const import CONF_SITE_ID, DOMAIN
+from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_SITE_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -145,8 +145,8 @@ class KumoCloudConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USERNAME: self.data[CONF_USERNAME],
                 CONF_PASSWORD: self.data[CONF_PASSWORD],
                 CONF_SITE_ID: self.data[CONF_SITE_ID],
-                "access_token": self.api.access_token,
-                "refresh_token": self.api.refresh_token,
+                CONF_ACCESS_TOKEN: self.api.access_token,
+                CONF_REFRESH_TOKEN: self.api.refresh_token,
             },
         )
 
@@ -195,8 +195,8 @@ class KumoCloudConfigFlow(ConfigFlow, domain=DOMAIN):
                     entry,
                     data_updates={
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
-                        "access_token": info["api"].access_token,
-                        "refresh_token": info["api"].refresh_token,
+                        CONF_ACCESS_TOKEN: info["api"].access_token,
+                        CONF_REFRESH_TOKEN: info["api"].refresh_token,
                     },
                 )
 
