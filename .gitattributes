@@ -1,0 +1,4 @@
+# Normalize line endings: detect text vs binary, store LF in the repo,
+# and check out LF on every platform. Keeps the working tree clean even
+# if an editor or tool rewrites files with CRLF.
+* text=auto eol=lf
