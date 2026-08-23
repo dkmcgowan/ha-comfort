@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.9.1] - 2026-08-23
+
+### Fixed
+
+- **The integration failed to set up.** `climate.py` imported `whole_home.py`
+  for the all-zones entity, and `whole_home.py` imported `climate.py` back
+  for a type annotation. Home Assistant loads each platform separately, so
+  that cycle only breaks at load time, with
+  `ImportError: cannot import name 'KumoCloudClimate' from partially
+  initialized module`. The annotation import is now behind `TYPE_CHECKING`,
+  where it does not run.
+
+  This shipped because nothing in the local checks imports anything. `ruff`
+  does not detect import cycles and `compileall` compiles without importing,
+  so both were green on broken code. `tests/test_imports.py` now imports
+  every module, including the two platforms in the order that reproduces the
+  cycle. It runs in CI, where Home Assistant is available, and skips
+  elsewhere.
+
 ## [1.9.0] - 2026-08-23
 
 Every write path is now fired against a real account. Three were wrong and

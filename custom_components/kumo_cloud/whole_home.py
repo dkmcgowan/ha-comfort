@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections import Counter
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -39,9 +39,16 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 
-from .climate import KumoCloudClimate
 from .coordinator import KumoCloudDataUpdateCoordinator
 from .entity import KumoCloudSiteEntity
+
+if TYPE_CHECKING:
+    # `climate` imports this module to build the entity, so importing it back
+    # at runtime is a cycle: Home Assistant loads the climate platform, which
+    # imports whole_home, which imports a half-initialized climate. The name
+    # is only ever used in annotations, and `from __future__ import
+    # annotations` makes those strings, so the type checker still sees it.
+    from .climate import KumoCloudClimate
 
 _LOGGER = logging.getLogger(__name__)
 
