@@ -16,7 +16,7 @@ from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_LOW,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -150,19 +150,37 @@ async def async_setup_entry(
     entry: KumoCloudConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Kumo Cloud climate devices."""
+    """Set up Kumo Cloud climate devices.
+
+    Adding on every refresh rather than only at setup, so a zone created in
+    the Comfort app after Home Assistant started still appears without a
+    manual reload of the config entry.
+    """
     coordinator = entry.runtime_data
+    known: set[str] = set()
 
-    entities = []
-    for zone in coordinator.zones:
-        if zone.get("adapter"):
-            device_serial = zone["adapter"]["deviceSerial"]
-            zone_id = zone["id"]
+    @callback
+    def _async_add_new_entities() -> None:
+        """Create climate entities for zones we have not seen before."""
+        new: list[KumoCloudClimate] = []
 
-            device = KumoCloudDevice(coordinator, zone_id, device_serial)
-            entities.append(KumoCloudClimate(device))
+        for zone in coordinator.zones:
+            adapter = zone.get("adapter")
+            if not adapter:
+                continue
 
-    async_add_entities(entities)
+            device = KumoCloudDevice(coordinator, zone["id"], adapter["deviceSerial"])
+            if device.unique_id in known:
+                continue
+            known.add(device.unique_id)
+            new.append(KumoCloudClimate(device))
+
+        if new:
+            _LOGGER.debug("Adding %d new climate entities", len(new))
+            async_add_entities(new)
+
+    _async_add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_entities))
 
 
 class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
@@ -247,10 +265,17 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
 
     @property
     def current_humidity(self) -> float | None:
-        """Return the current humidity from the wireless sensor, if present."""
+        """Return the current humidity from the wireless sensor, if present.
+
+        The API reports five decimal places. A thermostat shows a whole
+        percent, and the spare digits are noise from the sensor rather than
+        precision, so they are rounded off here. The standalone humidity
+        sensor entity keeps a decimal for anyone who wants to graph it.
+        """
         adapter = self.device.zone_data.get("adapter", {})
         device_data = self.device.device_data
-        return device_data.get("humidity", adapter.get("humidity"))
+        humidity = device_data.get("humidity", adapter.get("humidity"))
+        return None if humidity is None else round(humidity)
 
     @property
     def target_temperature(self) -> float | None:

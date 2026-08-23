@@ -36,7 +36,7 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
@@ -52,35 +52,55 @@ async def async_setup_entry(
     entry: KumoCloudConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Kumo Cloud sensor devices."""
+    """Set up Kumo Cloud sensor devices.
+
+    Entities are added on every coordinator refresh, not only at setup.
+    Pairing a wireless sensor in the Comfort app flips the zone's `hasSensor`
+    flag long after Home Assistant started, and adding a zone appears the
+    same way. Building the list once meant neither ever showed up until the
+    config entry was reloaded by hand.
+    """
     coordinator = entry.runtime_data
+    known: set[str] = set()
 
-    entities = []
-    for zone in coordinator.zones:
-        if zone.get("adapter"):
-            device_serial = zone["adapter"]["deviceSerial"]
-            zone_id = zone["id"]
-            has_sensor = zone["adapter"].get("hasSensor", False)
+    @callback
+    def _async_add_new_entities() -> None:
+        """Create entities for anything we have not seen before."""
+        new: list[SensorEntity] = []
 
-            device = KumoCloudDevice(coordinator, zone_id, device_serial)
+        for zone in coordinator.zones:
+            adapter = zone.get("adapter")
+            if not adapter:
+                continue
 
-            # Indoor unit sensors (always available)
-            entities.append(KumoCloudTemperatureSensor(device))
-            entities.append(KumoCloudHumiditySensor(device))
+            device = KumoCloudDevice(coordinator, zone["id"], adapter["deviceSerial"])
 
-            # Diagnostic sensors from /status endpoint (always available)
-            entities.append(KumoCloudFirmwareSensor(device))
-            entities.append(KumoCloudWiFiSignalSensor(device))
-            entities.append(KumoCloudFilterReminderSensor(device))
+            candidates: list[SensorEntity] = [
+                KumoCloudTemperatureSensor(device),
+                KumoCloudHumiditySensor(device),
+                KumoCloudFirmwareSensor(device),
+                KumoCloudWiFiSignalSensor(device),
+                KumoCloudFilterReminderSensor(device),
+            ]
+            if adapter.get("hasSensor", False):
+                candidates += [
+                    KumoCloudWirelessBatterySensor(device),
+                    KumoCloudWirelessSignalSensor(device),
+                    KumoCloudWirelessTemperatureSensor(device),
+                    KumoCloudWirelessHumiditySensor(device),
+                ]
 
-            # Wireless sensor entities (only if hasSensor is true)
-            if has_sensor:
-                entities.append(KumoCloudWirelessBatterySensor(device))
-                entities.append(KumoCloudWirelessSignalSensor(device))
-                entities.append(KumoCloudWirelessTemperatureSensor(device))
-                entities.append(KumoCloudWirelessHumiditySensor(device))
+            for entity in candidates:
+                if entity.unique_id not in known:
+                    known.add(entity.unique_id)
+                    new.append(entity)
 
-    async_add_entities(entities)
+        if new:
+            _LOGGER.debug("Adding %d new sensor entities", len(new))
+            async_add_entities(new)
+
+    _async_add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_entities))
 
 
 # =============================================================================
@@ -114,6 +134,9 @@ class KumoCloudHumiditySensor(KumoCloudEntity, SensorEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_device_class = SensorDeviceClass.HUMIDITY
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # The API reports five decimals. Keep the raw value as the state and let
+    # the display round, so history stays smooth but the card stays readable.
+    _attr_suggested_display_precision = 0
 
     def __init__(self, device: KumoCloudDevice) -> None:
         """Initialize the sensor."""
@@ -284,6 +307,7 @@ class KumoCloudWirelessTemperatureSensor(KumoCloudEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
 
     def __init__(self, device: KumoCloudDevice) -> None:
         """Initialize the sensor."""
@@ -309,6 +333,7 @@ class KumoCloudWirelessHumiditySensor(KumoCloudEntity, SensorEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_device_class = SensorDeviceClass.HUMIDITY
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
 
     def __init__(self, device: KumoCloudDevice) -> None:
         """Initialize the sensor."""
