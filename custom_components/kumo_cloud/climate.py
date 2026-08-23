@@ -17,9 +17,11 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
+    DOMAIN,
     OPERATION_MODE_AUTO,
     OPERATION_MODE_AUTO_COOL,
     OPERATION_MODE_AUTO_HEAT,
@@ -186,10 +188,8 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_ON
         )
 
-        profile = self.device.profile_data
-        if profile:
-            profile_data = profile[0] if isinstance(profile, list) else profile
-
+        profile_data = self._profile
+        if profile_data:
             # Check for fan speed support
             if profile_data.get("numberOfFanSpeeds", 0) > 0:
                 features |= ClimateEntityFeature.FAN_MODE
@@ -205,6 +205,37 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
                 features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
 
         self._attr_supported_features = features
+
+    # ---- Device capabilities -------------------------------------------------
+
+    @property
+    def _profile(self) -> dict[str, Any]:
+        """Return the unit's capability profile, or an empty dict."""
+        profile = self.device.profile_data
+        if not profile:
+            return {}
+        return profile[0] if isinstance(profile, list) else profile
+
+    @property
+    def _uses_setpoint_in_dry(self) -> bool:
+        """Return True if this unit accepts a setpoint while in dry mode.
+
+        Not every Mitsubishi unit does. The ones that do reuse `spCool`,
+        which is the value the Comfort app shows and edits in dry mode;
+        there is no separate dry setpoint field anywhere in the API.
+        """
+        return bool(self._profile.get("usesSetPointInDryMode", False))
+
+    def _setpoint(self, field: str) -> float | None:
+        """Read a setpoint, preferring the device record over the zone adapter.
+
+        The command cache writes into the device record, so reading the
+        adapter first would show the pre-command value for a minute and
+        undo the very bounce the cache exists to prevent.
+        """
+        adapter = self.device.zone_data.get("adapter", {})
+        value = self.device.device_data.get(field, adapter.get(field))
+        return c_to_f(value)
 
     # ---- Temperature properties ---------------------------------------------
 
@@ -224,13 +255,17 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the target temperature for single-setpoint modes."""
-        adapter = self.device.zone_data.get("adapter", {})
         hvac_mode = self.hvac_mode
 
         if hvac_mode == HVACMode.COOL:
-            return c_to_f(adapter.get("spCool"))
-        elif hvac_mode == HVACMode.HEAT:
-            return c_to_f(adapter.get("spHeat"))
+            return self._setpoint("spCool")
+        if hvac_mode == HVACMode.HEAT:
+            return self._setpoint("spHeat")
+        if hvac_mode == HVACMode.DRY and self._uses_setpoint_in_dry:
+            # Dry reuses the cool setpoint. Returning None on a unit that
+            # does not support one is what makes Home Assistant hide the
+            # control rather than offer a slider that does nothing.
+            return self._setpoint("spCool")
 
         # HEAT_COOL uses target_temperature_high/low instead
         return None
@@ -254,26 +289,44 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         return None
 
     @property
+    def _limit_key(self) -> str | None:
+        """Return which of the profile's setpoint ranges applies right now.
+
+        The profile carries a separate range per mode, and they genuinely
+        differ: one unit here allows heat down to 10 C but cool only to 16 C.
+        Merging them with min() and max() would offer a cooling setpoint the
+        unit will not accept.
+        """
+        return {
+            HVACMode.COOL: "cool",
+            HVACMode.DRY: "cool",
+            HVACMode.HEAT: "heat",
+            HVACMode.HEAT_COOL: "auto",
+        }.get(self.hvac_mode)
+
+    @property
     def min_temp(self) -> float:
-        """Return minimum temperature."""
-        profile = self.device.profile_data
-        if profile:
-            profile_data = profile[0] if isinstance(profile, list) else profile
-            min_setpoints = profile_data.get("minimumSetPoints", {})
-            min_c = min(min_setpoints.get("heat", 16), min_setpoints.get("cool", 16))
-            return c_to_f(min_c)
-        return c_to_f(16.0)
+        """Return minimum temperature for the current mode."""
+        limits = self._profile.get("minimumSetPoints", {})
+        if not limits:
+            return c_to_f(16.0)
+        key = self._limit_key
+        # Off and fan-only have no setpoint of their own, so report the
+        # widest range the unit supports rather than an arbitrary one.
+        if key is None or key not in limits:
+            return c_to_f(min(limits.values()))
+        return c_to_f(limits[key])
 
     @property
     def max_temp(self) -> float:
-        """Return maximum temperature."""
-        profile = self.device.profile_data
-        if profile:
-            profile_data = profile[0] if isinstance(profile, list) else profile
-            max_setpoints = profile_data.get("maximumSetPoints", {})
-            max_c = max(max_setpoints.get("heat", 30), max_setpoints.get("cool", 30))
-            return c_to_f(max_c)
-        return c_to_f(30.0)
+        """Return maximum temperature for the current mode."""
+        limits = self._profile.get("maximumSetPoints", {})
+        if not limits:
+            return c_to_f(30.0)
+        key = self._limit_key
+        if key is None or key not in limits:
+            return c_to_f(max(limits.values()))
+        return c_to_f(limits[key])
 
     @property
     def target_temperature_step(self) -> float:
@@ -304,9 +357,8 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         """Return the list of available HVAC modes."""
         modes = [HVACMode.OFF]
 
-        profile = self.device.profile_data
-        if profile:
-            profile_data = profile[0] if isinstance(profile, list) else profile
+        profile_data = self._profile
+        if profile_data:
             max_setpoints = profile_data.get("maximumSetPoints", {})
 
             if profile_data.get("hasModeHeat", False) or "heat" in max_setpoints:
@@ -396,11 +448,10 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
     @property
     def swing_modes(self) -> list[str] | None:
         """Return the list of available swing modes."""
-        profile = self.device.profile_data
-        if not profile:
+        profile_data = self._profile
+        if not profile_data:
             return None
 
-        profile_data = profile[0] if isinstance(profile, list) else profile
         if not (profile_data.get("hasVaneDir", False) or profile_data.get("hasVaneSwing", False)):
             return None
 
@@ -499,7 +550,14 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
         target_temp_c = f_to_c(target_temp_f)
         hvac_mode = self.hvac_mode
 
-        if hvac_mode == HVACMode.COOL:
+        # Dry reuses the cool setpoint on units that accept one at all.
+        if hvac_mode in (HVACMode.COOL, HVACMode.DRY):
+            if hvac_mode == HVACMode.DRY and not self._uses_setpoint_in_dry:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="no_setpoint_in_dry",
+                    translation_placeholders={"name": self.device.name},
+                )
             commands["spCool"] = target_temp_c
             sp_heat = device_data.get("spHeat", adapter.get("spHeat"))
             if sp_heat is not None:
@@ -515,6 +573,16 @@ class KumoCloudClimate(KumoCloudEntity, ClimateEntity):
             # Single setpoint in auto mode: set both with hysteresis
             commands["spCool"] = target_temp_c
             commands["spHeat"] = target_temp_c - 1.0  # ~2 F hysteresis
+
+        else:
+            # Off and fan-only have no setpoint. Saying so beats accepting
+            # the call and doing nothing, which is what used to happen in
+            # dry mode too.
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="no_setpoint_in_mode",
+                translation_placeholders={"name": self.device.name, "mode": str(hvac_mode)},
+            )
 
         if commands:
             await self._send_command_and_refresh(commands)

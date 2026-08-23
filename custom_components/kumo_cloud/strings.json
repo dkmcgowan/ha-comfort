@@ -41,5 +41,13 @@
           "description": "Configure options for your Mitsubishi Comfort integration."
         }
       }
+    },
+    "exceptions": {
+      "no_setpoint_in_dry": {
+        "message": "{name} does not accept a target temperature in dry mode."
+      },
+      "no_setpoint_in_mode": {
+        "message": "{name} has no target temperature in {mode} mode."
+      }
     }
   }
