@@ -94,7 +94,7 @@ change.
 A quality pass aligning the integration with current Home Assistant
 patterns, partly inspired by the upstream `mitsubishi_comfort`
 integration that landed in HA Core (`dev` branch, May 2026). No
-runtime behaviour changes; entity registry IDs are preserved.
+runtime behavior changes; entity registry IDs are preserved.
 
 ### Added
 
@@ -147,7 +147,7 @@ runtime behaviour changes; entity registry IDs are preserved.
 - **CI: HACS validation workflow.** Adds `validate.yml` running `hacs/action` against this repo as an integration on every push and pull request, catching HACS-side problems (missing fields, disabled Issues, missing topics) before they surface to end users. The `brands` check is currently ignored.
 - **CI: release notes now auto-populated from CHANGELOG.md.** The tag-triggered release workflow extracts the matching `## [VERSION]` section from `CHANGELOG.md` and uses it as the GitHub release body. The workflow hard-fails if the tag has no corresponding entry, preventing empty releases from shipping.
 
-No runtime changes — the `kumo_cloud` integration artifact is identical to v1.2.0.
+No runtime changes: the `kumo_cloud` integration artifact is identical to v1.2.0.
 
 ## [1.2.0] - 2026-05-29
 
@@ -155,7 +155,7 @@ No runtime changes — the `kumo_cloud` integration artifact is identical to v1.
 - **`current_humidity` property on climate entities.** The V3 API adapter payload
   includes a humidity reading for zones with a wireless sensor (PAC-USWHS003-TH-1).
   Mapping it to `ClimateEntity`'s canonical property means standard HA cards
-  (tile, thermostat) render humidity automatically — no templating needed.
+  (tile, thermostat) render humidity automatically, no templating needed.
   Requested in jjustinwilson/comfort_HA#26 by @greginno.
 
 ### Changed
@@ -168,10 +168,10 @@ No runtime changes — the `kumo_cloud` integration artifact is identical to v1.
 - **`hvac_action` now reports `IDLE` when at setpoint.** The Kumo Cloud V3 API
   does not expose a real "compressor running" signal, so the integration
   previously reported `HEATING`/`COOLING` continuously whenever a unit was on
-  in that mode — wrong for tile glow, energy dashboards, history graphs, and
+  in that mode, which is wrong for tile glow, energy dashboards, history graphs, and
   any automation keyed on `hvac_action`. Mirrors the generic-AUTO branch's
   existing temp-delta heuristic: HEAT/COOL/AUTO_HEAT/AUTO_COOL flip to `IDLE`
-  once the room passes setpoint by ≥1.0 °F.
+  once the room passes setpoint by >=1.0 °F.
 - **Wrong password at initial login now triggers re-auth, not a retry loop.**
   `KumoCloudAuthError` raised on HTTP 403 was being swallowed by the broad
   `except Exception` handler in `login()` and re-wrapped as
@@ -189,7 +189,7 @@ No runtime changes — the `kumo_cloud` integration artifact is identical to v1.
 - **`_request()` now wraps all connection-layer errors.** `aiohttp.ClientError` and `OSError`
   (which includes `aiodns.error.DNSError` surfaced as `ClientConnectorDNSError`) are caught
   and re-raised as `KumoCloudConnectionError` so they never propagate raw to the setup machinery.
-- **`refresh_access_token()` gets the same treatment** — DNS/socket errors during a token
+- **`refresh_access_token()` gets the same treatment**: DNS/socket errors during a token
   refresh are now wrapped as `KumoCloudConnectionError`.
 - **403 responses now trigger the reauth flow** (not a connection error). A 403 from the API
   raises `KumoCloudAuthError`, which maps to `ConfigEntryAuthFailed` in setup.

@@ -113,8 +113,23 @@ dmypy.json
 
 # macOS
 .DS_Store
+Thumbs.db
 
-# Claude Code working directory
-.claude/
+# Ruff
+.ruff_cache/
 
-CLAUDE.md 
+# Local Home Assistant test configuration
+config/
+!custom_components/
+
+# Local working notes, never published
+NOTES.md
+notes/
+TODO.md
+*.local.md
+
+# Developer tooling output; may contain credentials or account data
+scripts/.env
+scripts/.env.*
+scripts/*-output-*.json
+scripts/*.token.json

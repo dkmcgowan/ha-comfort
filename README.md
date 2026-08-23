@@ -13,7 +13,7 @@ wireless-sensor entities.
 - Heat, Cool, Dry, Fan-only, and Auto (HEAT_COOL) modes with dual setpoints in Auto
 - Per-zone temperature and humidity sensor entities
 - Wireless sensor support (PAC-USWHS003-TH-1): battery, signal strength,
-  temperature, humidity — auto-detected via the zone's `hasSensor` flag
+  temperature, humidity, auto-detected via the zone's `hasSensor` flag
 - Diagnostic sensors: WiFi adapter firmware version, WiFi signal strength,
   filter maintenance reminders
 - Comfort-app-accurate fan speed and vane position labels (no raw API strings
@@ -45,8 +45,8 @@ automatically.
 
 1. Install [HACS](https://hacs.xyz) if you haven't already
 2. Go to **HACS → Integrations → ⋮ menu → Custom repositories**
-3. Add `JoeQuantum/comfort_HA` with category **Integration**
-4. Search for **Mitsubishi Comfort** and install
+3. Add `dkmcgowan/ha-comfort` with category **Integration**
+4. Search for **Mitsubishi Comfort (Kumo Cloud)** and install
 5. Restart Home Assistant
 
 ### Manual
@@ -58,7 +58,7 @@ automatically.
 ## Configuration
 
 1. Go to **Settings → Devices & Services → Add Integration**
-2. Search for **Mitsubishi Comfort**
+2. Search for **Mitsubishi Comfort (Kumo Cloud)**
 3. Enter your Kumo Cloud / Comfort app credentials
 4. Select a site if your account has more than one
 
@@ -98,7 +98,7 @@ All entities for a given indoor unit are grouped under a single HA device. The d
 
 ### HVAC idle inference
 
-The Kumo Cloud V3 API does not expose a "compressor running" signal — only the
+The Kumo Cloud V3 API does not expose a "compressor running" signal, only the
 configured operation mode and power state. Without inference, `hvac_action`
 would report `HEATING`/`COOLING` continuously whenever a unit is on in that
 mode, which is wrong for tile glow, energy dashboards, history graphs, and any
@@ -106,7 +106,7 @@ automation keyed on `hvac_action`.
 
 The integration infers `HVACAction.IDLE` from the current vs. target
 temperature delta: in HEAT, COOL, AUTO_HEAT, and AUTO_COOL, it flips to `IDLE`
-once the room is past setpoint by 1.0 °F. This is a proxy — inverter mini
+once the room is past setpoint by 1.0 °F. This is a proxy: inverter mini
 splits modulate, so a unit reading `IDLE` may still be drawing a small amount
 of power.
 
@@ -122,7 +122,7 @@ back to its previous value a second after you moved it.
 
 Mitsubishi systems store temperatures in 0.5 °C steps but use a proprietary
 Fahrenheit-to-Celsius mapping that diverges from standard arithmetic at
-several setpoints (64–66 °F and 69–72 °F). The integration uses Mitsubishi's
+several setpoints (64 to 66 °F and 69 to 72 °F). The integration uses Mitsubishi's
 lookup table for setpoints and display, eliminating the ~1 °F drift that
 standard rounding causes for Fahrenheit users. Values outside the lookup
 table fall back to standard conversion.
@@ -130,7 +130,7 @@ table fall back to standard conversion.
 ### Authentication failures
 
 A 403 from the Kumo Cloud API raises `KumoCloudAuthError`, which Home Assistant
-maps to `ConfigEntryAuthFailed` — surfacing the re-authentication prompt in
+maps to `ConfigEntryAuthFailed`, which surfaces the re-authentication prompt in
 the UI rather than entering a retry loop.
 
 ## Comparison to other Mitsubishi integrations
@@ -138,18 +138,19 @@ the UI rather than entering a retry loop.
 Several Home Assistant integrations talk to Mitsubishi mini-splits. They make
 different tradeoffs; pick whichever matches your setup.
 
-### vs. HA Core [`mitsubishi_comfort`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort) (shipping in 2026.6)
+### vs. HA Core [`mitsubishi_comfort`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort)
 
 Home Assistant Core gained a first-party `mitsubishi_comfort` integration in
-May 2026, expected in the 2026.6 release. It also talks to the Kumo Cloud V3
-API and is maintained as part of HA Core.
+the 2026.6 release. It declares `iot_class: local_polling` and is built on the
+`mitsubishi-comfort` PyPI library, so it talks to the adapter on your LAN
+rather than to the Kumo Cloud V3 API this integration uses.
 
 **Choose `mitsubishi_comfort` if** you want the lowest-maintenance path and
 only need climate control. Bugfixes ship with Home Assistant releases.
 
 **Choose this integration if you also want:**
 - Per-zone **standalone temperature and humidity sensor entities**, independent
-  of the climate entity — usable in history graphs, templates, and automations
+  of the climate entity, usable in history graphs, templates, and automations
   without `state_attr()` indirection
 - **Wireless sensor (PAC-USWHS003-TH-1) entities**: battery, signal strength,
   temperature, humidity
@@ -168,13 +169,13 @@ protocol (using the [`pykumo`](https://github.com/dlarrick/pykumo) library),
 with the Kumo Cloud contacted only during initial setup.
 
 **Choose `hass-kumo` if you want:**
-- **Local control** — no cloud round-trips during normal operation; works
+- **Local control**: no cloud round-trips during normal operation; works
   during internet outages
 - **Outdoor temperature** reporting from a Kumo Station accessory
 - The Mitsubishi Kumo Station thermostat hub features
 
 **Choose this integration if you want:**
-- **Pure cloud setup** with no LAN requirements — your HA instance and your
+- **Pure cloud setup** with no LAN requirements: your HA instance and your
   mini-splits don't need to be on the same network
 - Standalone per-zone sensor entities (in `hass-kumo` these live on the
   climate entity's attributes)
@@ -209,20 +210,26 @@ simultaneously without conflict.
 
 ## Credits
 
+This integration is a fork of
+[JoeQuantum/comfort_HA](https://github.com/JoeQuantum/comfort_HA), which
+carried the work below forward from the original project. Everything before
+the fork point is theirs.
+
 ### Individual contributors
 
-- [jjustinwilson](https://github.com/jjustinwilson/comfort_HA) — Original integration and V3 API reverse engineering
-- [ekiczek](https://github.com/ekiczek/comfort_HA) — Mitsubishi F/C temperature lookup tables (PR #23, hass-kumo PR #199)
-- [smack000](https://github.com/smack000/comfort_HA) — Command caching, coordinator refactor, sensor entities, auto heat/cool mode
-- [tw3rp](https://github.com/jjustinwilson/comfort_HA/pull/2#issuecomment-2974732965) — Dual setpoint support for auto heat/cool, improved entity availability, API rate limiting with exponential backoff
-- [greginno](https://github.com/jjustinwilson/comfort_HA/issues/26) — Reported and prototyped the `current_humidity` property mapping
-- [mataiwilson](https://github.com/jjustinwilson/comfort_HA/pull/29) — Identified and fixed the swallowed `KumoCloudAuthError` in `login()`
+- [JoeQuantum](https://github.com/JoeQuantum/comfort_HA): the fork base, including the sensor platform, diagnostics, DHCP discovery, and last-mode memory
+- [jjustinwilson](https://github.com/jjustinwilson/comfort_HA): original integration and V3 API reverse engineering
+- [ekiczek](https://github.com/ekiczek/comfort_HA): Mitsubishi F/C temperature lookup tables (PR #23, hass-kumo PR #199)
+- [smack000](https://github.com/smack000/comfort_HA): command caching, coordinator refactor, sensor entities, auto heat/cool mode
+- [tw3rp](https://github.com/jjustinwilson/comfort_HA/pull/2#issuecomment-2974732965): dual setpoint support for auto heat/cool, improved entity availability, API rate limiting with exponential backoff
+- [greginno](https://github.com/jjustinwilson/comfort_HA/issues/26): reported and prototyped the `current_humidity` property mapping
+- [mataiwilson](https://github.com/jjustinwilson/comfort_HA/pull/29): identified and fixed the swallowed `KumoCloudAuthError` in `login()`
 
 ### Patterns adapted from sibling projects
 
-- [dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo) — Diagnostics support, last-HVAC-mode memory pattern, DHCP MAC prefixes, pre-commit configuration, temperature-module extraction.
-- HA Core [mitsubishi_comfort](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort) (by [@nikolairahimi](https://github.com/nikolairahimi)) — `KumoCloudEntity` base class, `ConfigEntry.runtime_data` migration, `hvac_action` lookup-table style.
+- [dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo): diagnostics support, last-HVAC-mode memory pattern, DHCP MAC prefixes, pre-commit configuration, temperature-module extraction.
+- HA Core [mitsubishi_comfort](https://github.com/home-assistant/core/tree/dev/homeassistant/components/mitsubishi_comfort) (by [@nikolairahimi](https://github.com/nikolairahimi)): `KumoCloudEntity` base class, `ConfigEntry.runtime_data` migration, `hvac_action` lookup-table style.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

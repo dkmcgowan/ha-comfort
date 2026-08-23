@@ -1,7 +1,7 @@
 {
     "domain": "kumo_cloud",
-    "name": "Mitsubishi Comfort",
-    "codeowners": ["@JoeQuantum"],
+    "name": "Mitsubishi Comfort (Kumo Cloud)",
+    "codeowners": ["@dkmcgowan"],
     "config_flow": true,
     "dhcp": [
         { "macaddress": "24CD8D*" },
@@ -10,11 +10,11 @@
         { "macaddress": "707414*" },
         { "macaddress": "7087A7*" }
     ],
-    "documentation": "https://github.com/JoeQuantum/comfort_HA/",
+    "documentation": "https://github.com/dkmcgowan/ha-comfort/",
     "homeassistant": "2025.1.0",
     "integration_type": "hub",
     "iot_class": "cloud_polling",
-    "issue_tracker": "https://github.com/JoeQuantum/comfort_HA/issues",
+    "issue_tracker": "https://github.com/dkmcgowan/ha-comfort/issues",
     "loggers": ["kumo_cloud"],
     "quality_scale": "bronze",
     "requirements": [],
