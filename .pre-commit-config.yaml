@@ -12,9 +12,11 @@ repos:
     rev: v2.2.6
     hooks:
       - id: codespell
+  # Lint only. `ruff-format` is deliberately absent: the inherited code is not
+  # formatter-clean, so enabling it would rewrite every file in one commit and
+  # bury the real history. CI gates on `ruff check` alone.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.4
+    rev: v0.16.4
     hooks:
       - id: ruff
         args: [--fix]
-      - id: ruff-format
