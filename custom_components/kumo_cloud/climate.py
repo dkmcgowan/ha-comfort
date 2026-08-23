@@ -35,6 +35,7 @@ from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
 from .entity import KumoCloudEntity
 from .last_hvac_mode import recall as recall_last_hvac_mode, remember as remember_last_hvac_mode
 from .temperature import c_to_f, f_to_c
+from .whole_home import KumoCloudWholeHomeClimate
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -158,6 +159,7 @@ async def async_setup_entry(
     """
     coordinator = entry.runtime_data
     known: set[str] = set()
+    whole_home: list[KumoCloudWholeHomeClimate] = []
 
     @callback
     def _async_add_new_entities() -> None:
@@ -175,9 +177,21 @@ async def async_setup_entry(
             known.add(device.unique_id)
             new.append(KumoCloudClimate(device))
 
-        if new:
-            _LOGGER.debug("Adding %d new climate entities", len(new))
+        if not new:
+            return
+
+        _LOGGER.debug("Adding %d new climate entities", len(new))
+
+        if whole_home:
+            # Zones discovered later join the existing whole home entity
+            # rather than producing a second one.
+            whole_home[0].add_members(new)
             async_add_entities(new)
+            return
+
+        entity = KumoCloudWholeHomeClimate(coordinator, list(new))
+        whole_home.append(entity)
+        async_add_entities([*new, entity])
 
     _async_add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(_async_add_new_entities))

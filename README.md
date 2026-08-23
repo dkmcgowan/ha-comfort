@@ -103,12 +103,33 @@ Per zone:
 | `binary_sensor.<zone>_cloud_connection` | Whether the adapter is reaching the cloud |
 | `binary_sensor.<zone>_firmware_update` | Set when the adapter has an update waiting |
 
+| `binary_sensor.<zone>_hold` | A hold is overriding this zone, with its expiry and overrides in attributes |
+| `binary_sensor.<zone>_schedule_active` | A schedule is running on this zone |
+| `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
+| `button.<zone>_reset_filter` | Clears the filter reminder |
+| `switch.<zone>_status_led` | The WiFi adapter's status light |
+
 Once per site:
 
 | Entity | Notes |
 |---|---|
+| `climate.<site>_all_zones` | One thermostat for the whole house, see below |
 | `sensor.<site>_outdoor_temperature` | Outdoor conditions for the site's location |
 | `sensor.<site>_outdoor_humidity` | Outdoor conditions for the site's location |
+
+### Controlling the whole house
+
+Home Assistant has no climate group helper, so a site-wide climate entity is
+created alongside the per-zone ones. Setting it applies to every zone, the
+same as the Comfort app's "Control all zones". There is no group behind it
+on the cloud side; it sends one command per zone, which is exactly what the
+app does.
+
+It only offers modes that **every** zone supports, so it can never ask a
+unit for something it will refuse. When the zones disagree it reports the
+most common mode and the mean setpoint, and puts `zones_in_sync: false` plus
+a per-zone breakdown in its attributes, so a disagreement is visible rather
+than averaged away.
 
 When a PAC-USWHS003-TH-1 wireless sensor is attached:
 
@@ -127,6 +148,37 @@ The outdoor sensors report the weather where your site is, from the same
 service the Comfort app uses. They are **not** a reading from your
 equipment. A real outdoor coil temperature needs a Kumo Station accessory,
 and without one the field the cloud would report it in stays empty.
+
+## What this integration does not do
+
+**Kumo Station and its accessories.** The cloud API exposes a Kumo Station,
+its accessory channels, relay outputs, MHK2 thermostats and air handler coil
+settings. None of it is implemented, for one reason: the author does not own
+any of that hardware, so none of it could be tested against a real device.
+Guessing at an interface for equipment nobody can try is how you ship
+something that looks finished and does not work. If you have this hardware
+and want it supported, open an issue.
+
+The same goes for outdoor temperature from the equipment itself. The field
+exists, but it belongs to the Kumo Station, so it stays empty without one.
+The outdoor sensors here come from a weather service instead, and are
+labeled as such.
+
+**Anything to do with your account.** Passwords, usernames, email
+verification, your postal address, your profile, ownership transfer,
+contractor requests and support chat are all reachable through the API and
+all deliberately left out. None of it belongs in a home automation system,
+and staying out of it means a bug here can never touch your credentials or
+your account details. Manage that in the Comfort app or on the web.
+
+**Provisioning.** Claiming, unregistering, and the installer level settings
+of an indoor unit are out for the same reason. Set your equipment up in the
+Comfort app; use this to run it.
+
+**Schedules.** Not for want of trying. The schedule and comfort preset
+endpoints reject this client with `426 invalidAppVersion` no matter what is
+sent, including the exact header set the Comfort app itself uses. Use Home
+Assistant's own automations, which are better anyway.
 
 ## Behavior notes
 

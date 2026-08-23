@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.7.0] - 2026-08-23
+
+### Added
+
+- **A whole-house climate entity**, one per site, alongside the per-zone
+  ones. Setting it applies to every zone, the same as the Comfort app's
+  "Control all zones". Home Assistant has no climate group helper, so this
+  otherwise takes a script that loops over every unit. It offers only modes
+  every zone supports, and when the zones disagree it reports the most
+  common mode and the mean setpoint with `zones_in_sync: false` and a
+  per-zone breakdown in its attributes.
+- **Hold**, as a binary sensor per zone, with the expiry and whatever the
+  hold is pinning in its attributes. This is the app's temporary override.
+  The data was already in a payload fetched every poll and nothing read it.
+- **Schedule active**, a binary sensor per zone.
+- **Connected since**, a per-zone timestamp with recent connect and
+  disconnect history in its attributes. The account this was built against
+  had a two day outage that nothing in Home Assistant would have shown.
+- **A reset filter button** per zone.
+- **A status LED switch** per zone, for the WiFi adapter's light.
+
+### Documentation
+
+- The README now says plainly what is out of scope and why: Kumo Station and
+  its accessories, MHK2 and air handler coils, because the author has none of
+  that hardware and will not ship an untestable guess; everything touching
+  the account, because credentials and postal addresses have no business in a
+  home automation system; provisioning; and schedules, which reject this
+  client no matter what is sent.
+
+### Known unverified
+
+The reset filter button and the status LED switch both **write**, and
+neither write has been fired against a real account. Reading `ledDisabled`
+is confirmed; setting it through the cloud command endpoint is inferred,
+because the app changes it over a channel this integration does not use. If
+the LED switch flips back a second later, the command was accepted and
+ignored. Both are marked in their own source files.
+
 ## [1.6.0] - 2026-08-23
 
 Live updates. The cloud runs a push channel that the Comfort app uses

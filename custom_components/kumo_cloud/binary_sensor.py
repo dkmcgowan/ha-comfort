@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -37,6 +38,7 @@ class KumoBinarySensorDescription(BinarySensorEntityDescription):
     """Describes a Kumo Cloud binary sensor."""
 
     value_fn: Callable[[KumoCloudDevice], bool | None]
+    attributes_fn: Callable[[KumoCloudDevice], dict[str, Any]] | None = None
 
 
 def _display_flag(name: str) -> Callable[[KumoCloudDevice], bool | None]:
@@ -86,7 +88,65 @@ def _has_fault(device: KumoCloudDevice) -> bool | None:
     return None if code is None else code not in ("A0", "00", "")
 
 
+def _hold_active(device: KumoCloudDevice) -> bool | None:
+    """Report whether a hold is overriding the schedule on this zone.
+
+    A hold is the app's temporary override: it pins settings until
+    `endTime`. The zone record carries the whole thing, so this costs no
+    extra request.
+    """
+    hold = device.hold
+    if not hold:
+        return None
+    return bool(hold.get("enabled"))
+
+
+def _hold_attributes(device: KumoCloudDevice) -> dict[str, Any]:
+    """Expose when the hold ends and what it is pinning.
+
+    The setting fields are null when the hold does not override them, so
+    they are dropped rather than reported as empty.
+    """
+    hold = device.hold
+    if not hold:
+        return {}
+    attributes: dict[str, Any] = {
+        "end_time": hold.get("endTime"),
+        "hold_type": hold.get("holdType") or hold.get("type"),
+    }
+    for field, name in (
+        ("operationMode", "operation_mode"),
+        ("fanSpeed", "fan_speed"),
+        ("airDirection", "air_direction"),
+        ("spCool", "cool_setpoint"),
+        ("spHeat", "heat_setpoint"),
+    ):
+        if hold.get(field) is not None:
+            attributes[name] = hold[field]
+    return attributes
+
+
+def _schedule_active(device: KumoCloudDevice) -> bool | None:
+    """Report whether a schedule is running on this zone."""
+    value = device.zone_data.get("hasActiveSchedule")
+    return None if value is None else bool(value)
+
+
 DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
+    KumoBinarySensorDescription(
+        key="hold",
+        name="Hold",
+        icon="mdi:pause-octagon-outline",
+        value_fn=_hold_active,
+        attributes_fn=_hold_attributes,
+    ),
+    KumoBinarySensorDescription(
+        key="schedule_active",
+        name="Schedule active",
+        icon="mdi:calendar-clock",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_schedule_active,
+    ),
     KumoBinarySensorDescription(
         key="filter_dirty",
         name="Filter",
@@ -190,6 +250,13 @@ class KumoCloudBinarySensor(KumoCloudEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return the flag's current state."""
         return self.entity_description.value_fn(self.device)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the description's attributes, if it defines any."""
+        if self.entity_description.attributes_fn is None:
+            return {}
+        return self.entity_description.attributes_fn(self.device)
 
     @property
     def available(self) -> bool:

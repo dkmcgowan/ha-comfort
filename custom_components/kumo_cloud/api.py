@@ -298,6 +298,26 @@ class KumoCloudAPI:
         """
         return await self._request_optional("GET", "/notifications/active")
 
+    async def get_zone_connection_history(self, zone_id: str) -> dict[str, Any] | None:
+        """Get the zone's connection and disconnection history.
+
+        Endpoint: GET /v3/zones/{zoneId}/connection-history
+        Paginated as `{next, previous, count, data}`, newest first, each row
+        `{start, end, isConnected, uptime}`. The open row has `end` null.
+        """
+        return await self._request_optional("GET", f"/zones/{zone_id}/connection-history")
+
+    async def reset_filter(self, zone_id: str) -> dict[str, Any]:
+        """Clear the zone's filter reminder.
+
+        Endpoint: POST /v3/zones/{zoneId}/reset-filter
+
+        **Unverified.** The path comes from the app's own endpoint catalog,
+        but this is a write and has not been fired against a real account,
+        so the method and the empty body are inferred rather than observed.
+        """
+        return await self._request("POST", f"/zones/{zone_id}/reset-filter", {})
+
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.
 

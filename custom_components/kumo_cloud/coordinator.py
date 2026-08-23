@@ -52,6 +52,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         self.zone_notifications: dict[str, dict[str, Any]] = {}
         self.device_prohibits: dict[str, dict[str, Any]] = {}
         self.device_connections: dict[str, dict[str, Any]] = {}
+        self.zone_history: dict[str, list[dict[str, Any]]] = {}
         self.site: dict[str, Any] = {}
         self.site_weather: dict[str, Any] = {}
         self.active_alerts: list[dict[str, Any]] = []
@@ -181,6 +182,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             "zone_notifications": self.zone_notifications,
             "device_prohibits": self.device_prohibits,
             "device_connections": self.device_connections,
+            "zone_history": self.zone_history,
             "site": self.site,
             "site_weather": self.site_weather,
             "active_alerts": self.active_alerts,
@@ -238,6 +240,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             zone_notifications = {}
             device_prohibits = dict(self.device_prohibits)
             device_connections = dict(self.device_connections)
+            zone_history = dict(self.zone_history)
 
             if slow_tier:
                 await self._async_update_site_data()
@@ -262,10 +265,11 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                         tasks.append(self.api.get_wireless_sensor(device_serial))
 
                     if slow_tier:
-                        task_keys += ["prohibits", "connection"]
+                        task_keys += ["prohibits", "connection", "history"]
                         tasks += [
                             self.api.get_device_prohibits(device_serial),
                             self.api.get_device_recent_connected(device_serial),
+                            self.api.get_zone_connection_history(zone_id),
                         ]
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -304,6 +308,8 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                         device_prohibits[device_serial] = result_map["prohibits"]
                     if result_map.get("connection"):
                         device_connections[device_serial] = result_map["connection"]
+                    if result_map.get("history"):
+                        zone_history[zone_id] = result_map["history"].get("data") or []
 
             # Store the data for access by entities
             self.zones = zones
@@ -314,6 +320,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             self.zone_notifications = zone_notifications
             self.device_prohibits = device_prohibits
             self.device_connections = device_connections
+            self.zone_history = zone_history
 
             # A zone added since the last poll needs subscribing to, and a
             # push channel that has gone quiet or dropped needs the poll to
@@ -519,6 +526,26 @@ class KumoCloudDevice:
         notification preferences, which is just a 30 day calendar.
         """
         return self.device_data.get("displayConfig") or {}
+
+    @property
+    def hold(self) -> dict[str, Any]:
+        """Get the zone's hold, the app's temporary override.
+
+        Shape: `{enabled, type, holdType, endTime, operationMode, fanSpeed,
+        airDirection, spCool, spHeat}`. The setting fields are the values the
+        hold applies, and are null when the hold is not overriding them.
+        """
+        return self.zone_data.get("holdMode") or {}
+
+    @property
+    def has_active_schedule(self) -> bool:
+        """Return whether a schedule is running on this zone."""
+        return bool(self.zone_data.get("hasActiveSchedule"))
+
+    @property
+    def connection_history(self) -> list[dict[str, Any]]:
+        """Get the zone's connection history, newest first."""
+        return self.coordinator.zone_history.get(self.zone_id, [])
 
     @property
     def alerts(self) -> list[dict[str, Any]]:

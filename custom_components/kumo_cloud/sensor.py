@@ -95,6 +95,7 @@ async def async_setup_entry(
                 KumoCloudSetpointLimitSensor(device, "maximum"),
                 KumoCloudRemoteLockoutSensor(device),
                 KumoCloudAlertSensor(device),
+                KumoCloudConnectionSensor(device),
             ]
             if adapter.get("hasSensor", False):
                 candidates += [
@@ -498,6 +499,65 @@ class KumoCloudAlertSensor(KumoCloudEntity, SensorEntity):
                 for alert in self.device.alerts
             ]
         }
+
+
+class KumoCloudConnectionSensor(KumoCloudEntity, SensorEntity):
+    """When the adapter last came online, with its recent history.
+
+    `/zones/{id}/connection-history` returns rows of
+    `{start, end, isConnected, uptime}`, newest first. The open row is the
+    current stretch. This account had a two day gap that nothing in Home
+    Assistant would otherwise have shown.
+    """
+
+    _attr_name = "Connected since"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:lan-connect"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_connected_since"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the start of the current connected stretch."""
+        for row in self.device.connection_history:
+            if row.get("isConnected") and row.get("end") is None:
+                return _parse_timestamp(row.get("start"))
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the recent history so a flapping adapter is visible."""
+        history = self.device.connection_history
+        if not history:
+            return {}
+        return {
+            "recent": [
+                {
+                    "start": row.get("start"),
+                    "end": row.get("end"),
+                    "connected": row.get("isConnected"),
+                    "uptime": row.get("uptime"),
+                }
+                for row in history[:10]
+            ],
+            "outages_recorded": sum(
+                1 for row in history if not row.get("isConnected")
+            ),
+        }
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    """Parse an API timestamp, tolerating the trailing Z."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
 
 
 # =============================================================================
