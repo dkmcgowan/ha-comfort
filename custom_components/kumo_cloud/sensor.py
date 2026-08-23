@@ -21,8 +21,8 @@ API endpoints discovered via Proxyman traffic capture of the Comfort app:
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -31,9 +31,9 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    EntityCategory,
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
@@ -57,7 +57,7 @@ async def async_setup_entry(
 
     entities = []
     for zone in coordinator.zones:
-        if "adapter" in zone and zone["adapter"]:
+        if zone.get("adapter"):
             device_serial = zone["adapter"]["deviceSerial"]
             zone_id = zone["id"]
             has_sensor = zone["adapter"].get("hasSensor", False)
@@ -96,11 +96,13 @@ class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_temperature"
 
     @property
     def native_value(self) -> float | None:
+        """Return the room temperature reported by the indoor unit."""
         adapter = self.device.zone_data.get("adapter", {})
         return adapter.get("roomTemp")
 
@@ -114,11 +116,13 @@ class KumoCloudHumiditySensor(KumoCloudEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_humidity"
 
     @property
     def native_value(self) -> float | None:
+        """Return the humidity reported by the indoor unit."""
         adapter = self.device.zone_data.get("adapter", {})
         device_data = self.device.device_data
         return device_data.get("humidity", adapter.get("humidity"))
@@ -136,11 +140,13 @@ class KumoCloudFirmwareSensor(KumoCloudEntity, SensorEntity):
     _attr_icon = "mdi:chip"
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_firmware"
 
     @property
     def native_value(self) -> str | None:
+        """Return the WiFi adapter's firmware version."""
         status = self.device.device_status_data
         if status is None:
             return None
@@ -157,11 +163,13 @@ class KumoCloudWiFiSignalSensor(KumoCloudEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wifi_rssi"
 
     @property
     def native_value(self) -> int | None:
+        """Return the WiFi adapter's signal strength to the router."""
         status = self.device.device_status_data
         if status is None:
             return None
@@ -185,11 +193,13 @@ class KumoCloudFilterReminderSensor(KumoCloudEntity, SensorEntity):
     _attr_icon = "mdi:air-filter"
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_filter_reminder"
 
     @property
     def native_value(self) -> datetime | None:
+        """Return when the last filter reminder was sent."""
         notifications = self.device.zone_notification_data
         if notifications is None:
             return None
@@ -231,11 +241,13 @@ class KumoCloudWirelessBatterySensor(KumoCloudEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_battery"
 
     @property
     def native_value(self) -> int | None:
+        """Return the wireless sensor's battery level."""
         sensor_data = self.device.wireless_sensor_data
         if sensor_data is None:
             return None
@@ -252,11 +264,13 @@ class KumoCloudWirelessSignalSensor(KumoCloudEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_rssi"
 
     @property
     def native_value(self) -> int | None:
+        """Return the wireless sensor's signal strength to the adapter."""
         sensor_data = self.device.wireless_sensor_data
         if sensor_data is None:
             return None
@@ -272,11 +286,13 @@ class KumoCloudWirelessTemperatureSensor(KumoCloudEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_temperature"
 
     @property
     def native_value(self) -> float | None:
+        """Return the temperature measured by the wireless sensor."""
         sensor_data = self.device.wireless_sensor_data
         if sensor_data is None:
             return None
@@ -295,11 +311,13 @@ class KumoCloudWirelessHumiditySensor(KumoCloudEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
         super().__init__(device)
         self._attr_unique_id = f"{device.device_serial}_wireless_humidity"
 
     @property
     def native_value(self) -> float | None:
+        """Return the humidity measured by the wireless sensor."""
         sensor_data = self.device.wireless_sensor_data
         if sensor_data is None:
             return None

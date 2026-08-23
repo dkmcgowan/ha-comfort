@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 type KumoCloudConfigEntry = ConfigEntry["KumoCloudDataUpdateCoordinator"]
 
@@ -67,7 +67,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             zone_notifications = {}
 
             for zone in zones:
-                if "adapter" in zone and zone["adapter"]:
+                if zone.get("adapter"):
                     device_serial = zone["adapter"]["deviceSerial"]
                     zone_id = zone["id"]
                     has_sensor = zone["adapter"].get("hasSensor", False)
@@ -89,9 +89,11 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
                     # Process results by key
                     result_map = {}
-                    for key, result in zip(task_keys, results):
+                    for key, result in zip(task_keys, results, strict=True):
                         if isinstance(result, Exception):
-                            _LOGGER.debug("Failed to fetch %s for %s: %s", key, device_serial, result)
+                            _LOGGER.debug(
+                                "Failed to fetch %s for %s: %s", key, device_serial, result
+                            )
                             result_map[key] = None
                         else:
                             result_map[key] = result
@@ -130,7 +132,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 "zone_notifications": zone_notifications,
             }
 
-        except KumoCloudAuthError as err:
+        except KumoCloudAuthError:
             # Reactive token refresh: a 401 surfaced mid-poll, despite
             # `api._ensure_token_valid` doing proactive refresh on each call.
             # Try to refresh once and replay the poll; if that fails, give up
@@ -142,13 +144,18 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(
                     f"Authentication failed: {refresh_err}"
                 ) from refresh_err
-            except (KumoCloudConnectionError, aiohttp.ClientError, OSError, asyncio.TimeoutError) as refresh_err:
+            except (
+                TimeoutError,
+                KumoCloudConnectionError,
+                aiohttp.ClientError,
+                OSError,
+            ) as refresh_err:
                 raise UpdateFailed(
                     f"Error during token refresh: {refresh_err}"
                 ) from refresh_err
         except KumoCloudConnectionError as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
-        except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as err:
+        except (TimeoutError, aiohttp.ClientError, OSError) as err:
             raise UpdateFailed(f"Connection error: {err}") from err
 
     async def async_refresh_device(self, device_serial: str) -> None:
@@ -165,22 +172,21 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Also update the zone data if it contains the same info
             for zone in self.zones:
-                if "adapter" in zone and zone["adapter"]:
-                    if zone["adapter"]["deviceSerial"] == device_serial:
-                        # Update adapter data with fresh device data
-                        zone["adapter"].update(
-                            {
-                                "roomTemp": device_detail.get("roomTemp"),
-                                "operationMode": device_detail.get("operationMode"),
-                                "power": device_detail.get("power"),
-                                "fanSpeed": device_detail.get("fanSpeed"),
-                                "airDirection": device_detail.get("airDirection"),
-                                "spCool": device_detail.get("spCool"),
-                                "spHeat": device_detail.get("spHeat"),
-                                "humidity": device_detail.get("humidity"),
-                            }
-                        )
-                        break
+                if zone.get("adapter") and zone["adapter"]["deviceSerial"] == device_serial:
+                    # Update adapter data with fresh device data
+                    zone["adapter"].update(
+                        {
+                            "roomTemp": device_detail.get("roomTemp"),
+                            "operationMode": device_detail.get("operationMode"),
+                            "power": device_detail.get("power"),
+                            "fanSpeed": device_detail.get("fanSpeed"),
+                            "airDirection": device_detail.get("airDirection"),
+                            "spCool": device_detail.get("spCool"),
+                            "spHeat": device_detail.get("spHeat"),
+                            "humidity": device_detail.get("humidity"),
+                        }
+                    )
+                    break
 
             # Update the coordinator's data dict
             self.data = {
@@ -198,27 +204,27 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Refreshed device %s data", device_serial)
 
         except (
+            TimeoutError,
             KumoCloudAuthError,
             KumoCloudConnectionError,
             aiohttp.ClientError,
             OSError,
-            asyncio.TimeoutError,
         ) as err:
             _LOGGER.warning("Failed to refresh device %s: %s", device_serial, err)
 
     def cache_command(self, device_serial: str, command: str, value: Any) -> None:
         """Cache a command with its value and timestamp."""
-        current_time = datetime.now(timezone.utc).isoformat()
+        current_time = datetime.now(UTC).isoformat()
         self.cached_commands[(device_serial, command)] = (current_time, value)
         _LOGGER.debug("Cached command in device data: %s at %s", command, current_time)
 
     def cull_cached_commands(self, device_serial: str, date: str) -> None:
-        """Remove cached commands for a device where the date is on or after the item's timestamp."""
+        """Drop this device's cached commands stamped at or before the given date."""
         to_remove = []
         input_date = datetime.fromisoformat(date)
 
         for key, value in self.cached_commands.items():
-            cached_device_serial, command = key
+            cached_device_serial, _command = key
             cached_date, _ = value
             cached_date_obj = datetime.fromisoformat(cached_date)
 
@@ -335,7 +341,12 @@ class KumoCloudDevice:
         """Send a command to the device and refresh status."""
         try:
             response = await self.coordinator.api.send_command(self.device_serial, commands)
-            _LOGGER.debug("Sent command to device %s: %s, Response: %s", self.device_serial, commands, response)
+            _LOGGER.debug(
+                "Sent command to device %s: %s, Response: %s",
+                self.device_serial,
+                commands,
+                response,
+            )
 
             # Wait a moment for the command to be processed
             await asyncio.sleep(1)
@@ -344,11 +355,11 @@ class KumoCloudDevice:
             await self.coordinator.async_refresh_device(self.device_serial)
 
         except (
+            TimeoutError,
             KumoCloudAuthError,
             KumoCloudConnectionError,
             aiohttp.ClientError,
             OSError,
-            asyncio.TimeoutError,
         ) as err:
             _LOGGER.error(
                 "Failed to send command to device %s: %s", self.device_serial, err

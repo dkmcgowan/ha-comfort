@@ -10,8 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
-from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator
 from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_SITE_ID
+from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) -> bool:
     """Set up Kumo Cloud from a config entry."""
-
     api = KumoCloudAPI(hass)
 
     if CONF_ACCESS_TOKEN in entry.data:

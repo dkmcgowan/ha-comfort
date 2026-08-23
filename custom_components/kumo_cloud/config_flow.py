@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+import voluptuous as vol
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_SITE_ID, DOMAIN

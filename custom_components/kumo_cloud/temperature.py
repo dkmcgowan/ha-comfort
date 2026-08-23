@@ -1,14 +1,14 @@
 """Mitsubishi-specific Fahrenheit/Celsius conversion.
 
 Mitsubishi systems use 0.5 °C steps internally, but their F-to-C mapping
-diverges from standard arithmetic at several setpoints (64–66 °F and
-69–72 °F). These lookup tables match the Comfort app and the physical
+diverges from standard arithmetic at several setpoints (64 to 66 °F
+and 69 to 72 °F). These lookup tables match the Comfort app and the physical
 remote exactly; values outside the tables fall back to standard rounding.
 """
 
 from __future__ import annotations
 
-# Fahrenheit -> Celsius setpoint mapping (61–80 °F).
+# Fahrenheit -> Celsius setpoint mapping (61 to 80 °F).
 F_TO_C: dict[int, float] = {
     61: 16.0, 62: 16.5, 63: 17.0, 64: 17.5, 65: 18.0, 66: 18.5,
     67: 19.5, 68: 20.0, 69: 21.0, 70: 21.5, 71: 22.0, 72: 22.5,
@@ -49,7 +49,7 @@ def f_to_c(fahrenheit: float | None) -> float | None:
     """
     if fahrenheit is None:
         return None
-    f_int = int(round(fahrenheit))
+    f_int = round(fahrenheit)
     if f_int in F_TO_C:
         return F_TO_C[f_int]
     celsius = (fahrenheit - 32.0) * 5.0 / 9.0

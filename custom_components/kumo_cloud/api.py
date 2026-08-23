@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
 from datetime import datetime, timedelta
+import logging
 from typing import Any
 
 import aiohttp
-from aiohttp import ClientResponseError, ClientTimeout
-
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from aiohttp import ClientResponseError
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    API_APP_VERSION,
     API_BASE_URL,
     API_VERSION,
-    API_APP_VERSION,
-    TOKEN_REFRESH_INTERVAL,
     TOKEN_EXPIRY_MARGIN,
+    TOKEN_REFRESH_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,7 +81,7 @@ class KumoCloudAPI:
 
                     return result
 
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise KumoCloudConnectionError("Connection timeout") from err
         except ClientResponseError as err:
             if err.status == 403:
@@ -122,7 +120,7 @@ class KumoCloudAPI:
                         seconds=TOKEN_REFRESH_INTERVAL
                     )
 
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise KumoCloudConnectionError("Connection timeout during refresh") from err
         except ClientResponseError as err:
             if err.status == 401:
@@ -160,7 +158,7 @@ class KumoCloudAPI:
 
         max_retries = 3
         base_delay = 60
-        
+
         for attempt in range(max_retries + 1):
             try:
                 async with asyncio.timeout(30):
@@ -177,7 +175,7 @@ class KumoCloudAPI:
                                 return await response.json()
                             return {}
 
-            except asyncio.TimeoutError as err:
+            except TimeoutError as err:
                 if attempt < max_retries:
                     delay = base_delay * (2 ** attempt)
                     _LOGGER.warning(

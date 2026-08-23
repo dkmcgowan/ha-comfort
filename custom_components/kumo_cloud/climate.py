@@ -19,21 +19,20 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
-from .entity import KumoCloudEntity
-from .last_hvac_mode import recall as recall_last_hvac_mode
-from .last_hvac_mode import remember as remember_last_hvac_mode
-from .temperature import c_to_f, f_to_c
 from .const import (
-    OPERATION_MODE_OFF,
-    OPERATION_MODE_COOL,
-    OPERATION_MODE_HEAT,
-    OPERATION_MODE_DRY,
-    OPERATION_MODE_VENT,
     OPERATION_MODE_AUTO,
     OPERATION_MODE_AUTO_COOL,
     OPERATION_MODE_AUTO_HEAT,
+    OPERATION_MODE_COOL,
+    OPERATION_MODE_DRY,
+    OPERATION_MODE_HEAT,
+    OPERATION_MODE_OFF,
+    OPERATION_MODE_VENT,
 )
+from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
+from .entity import KumoCloudEntity
+from .last_hvac_mode import recall as recall_last_hvac_mode, remember as remember_last_hvac_mode
+from .temperature import c_to_f, f_to_c
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -154,7 +153,7 @@ async def async_setup_entry(
 
     entities = []
     for zone in coordinator.zones:
-        if "adapter" in zone and zone["adapter"]:
+        if zone.get("adapter"):
             device_serial = zone["adapter"]["deviceSerial"]
             zone_id = zone["id"]
 
