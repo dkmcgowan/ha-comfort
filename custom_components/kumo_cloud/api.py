@@ -232,26 +232,16 @@ class KumoCloudAPI:
         Returns None if the device has no wireless sensor attached.
         Endpoint: GET /v3/devices/{deviceSerial}/sensor
         """
-        try:
-            return await self._request("GET", f"/devices/{device_serial}/sensor")
-        except KumoCloudConnectionError as err:
-            if "404" in str(err):
-                return None
-            raise
+        return await self._request_optional("GET", f"/devices/{device_serial}/sensor")
 
     async def get_device_status(self, device_serial: str) -> dict[str, Any] | None:
-        """Get device status (firmware version, WiFi signal, router info).
+        """Get device status (firmware version, WiFi signal, setpoint limits).
 
         Endpoint: GET /v3/devices/{deviceSerial}/status
-        Returns: firmwareVersion, routerSsid, routerRssi, autoModeDisable,
-                 roomTempDisplayOffset, modeHeat, modeDry, cryptoSerial, etc.
+        Returns: firmwareVersion, roomTempDisplayOffset, routerSsid,
+                 routerRssi, minSetPoint, maxSetPoint, lastUpdated, mac.
         """
-        try:
-            return await self._request("GET", f"/devices/{device_serial}/status")
-        except KumoCloudConnectionError as err:
-            if "404" in str(err):
-                return None
-            raise
+        return await self._request_optional("GET", f"/devices/{device_serial}/status")
 
     async def get_zone_notification_preferences(self, zone_id: str) -> dict[str, Any] | None:
         """Get zone notification preferences (filter reminders, alert settings).
@@ -260,8 +250,62 @@ class KumoCloudAPI:
         Returns: filterDirtyReminderInterval, filterDirtyReminderLastSent,
                  sensorLowBattery, sensorSignalLost, lowTemp, highTemp, etc.
         """
+        return await self._request_optional("GET", f"/zones/{zone_id}/notification-preferences")
+
+    async def get_device_prohibits(self, device_serial: str) -> dict[str, Any] | None:
+        """Get which controls the wall remote is locked out of.
+
+        Endpoint: GET /v3/devices/{deviceSerial}/prohibits
+        Returns three blocks, `local`, `global` and `effective`, each with
+        `power`, `mode` and `setpoint` booleans. `effective` is the one that
+        describes what the remote can actually do right now.
+        """
+        return await self._request_optional("GET", f"/devices/{device_serial}/prohibits")
+
+    async def get_device_recent_connected(self, device_serial: str) -> dict[str, Any] | None:
+        """Get last connection time and firmware update state.
+
+        Endpoint: GET /v3/devices/{deviceSerial}/recent-connected
+        Returns `timestamp`, `firmwareVer` and `firmwareUpgradeTo`, the last
+        being null when the adapter is up to date.
+        """
+        return await self._request_optional("GET", f"/devices/{device_serial}/recent-connected")
+
+    async def get_site(self, site_id: str) -> dict[str, Any] | None:
+        """Get the site record.
+
+        Endpoint: GET /v3/sites/{siteId}
+        Carries the name and address, plus `schedulesEnabled` and
+        `notificationsEnabled`.
+        """
+        return await self._request_optional("GET", f"/sites/{site_id}")
+
+    async def get_site_weather(self, site_id: str) -> dict[str, Any] | None:
+        """Get outdoor conditions for the site's location.
+
+        Endpoint: GET /v3/sites/{siteId}/weather
+        This is an OpenWeatherMap payload for wherever the site is, which is
+        what the Comfort app shows. It is not a reading from the equipment.
+        """
+        return await self._request_optional("GET", f"/sites/{site_id}/weather")
+
+    async def get_active_notifications(self) -> dict[str, Any] | None:
+        """Get unresolved alerts across the account.
+
+        Endpoint: GET /v3/notifications/active
+        Paginated as `{next, previous, count, data}`. Each entry carries
+        `severity`, `eventType` and an optional `zoneId`.
+        """
+        return await self._request_optional("GET", "/notifications/active")
+
+    async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
+        """Make a request, returning None when the endpoint is absent.
+
+        Several of these depend on hardware the account may not have, and a
+        404 there is an answer rather than a failure.
+        """
         try:
-            return await self._request("GET", f"/zones/{zone_id}/notification-preferences")
+            return await self._request(method, endpoint)
         except KumoCloudConnectionError as err:
             if "404" in str(err):
                 return None

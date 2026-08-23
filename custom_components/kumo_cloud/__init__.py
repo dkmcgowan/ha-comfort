@@ -15,7 +15,7 @@ from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CLIMATE, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) -> bool:
     """Set up Kumo Cloud from a config entry."""

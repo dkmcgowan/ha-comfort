@@ -19,6 +19,11 @@ type KumoCloudConfigEntry = ConfigEntry["KumoCloudDataUpdateCoordinator"]
 
 _LOGGER = logging.getLogger(__name__)
 
+# Firmware state, remote lockout and the setpoint limits change on the order
+# of days, not minutes, and every one of them costs a request per unit on a
+# cloud API with no published rate limit. Fetch them every Nth refresh.
+SLOW_TIER_EVERY = 10
+
 class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Kumo Cloud data."""
 
@@ -38,6 +43,14 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         self.wireless_sensors: dict[str, dict[str, Any]] = {}
         self.device_statuses: dict[str, dict[str, Any]] = {}
         self.zone_notifications: dict[str, dict[str, Any]] = {}
+        self.device_prohibits: dict[str, dict[str, Any]] = {}
+        self.device_connections: dict[str, dict[str, Any]] = {}
+        self.site: dict[str, Any] = {}
+        self.site_weather: dict[str, Any] = {}
+        self.active_alerts: list[dict[str, Any]] = []
+
+        # Counts refreshes so the slow tier can run every Nth one.
+        self._refresh_count = 0
 
         # Instance variable to store cached commands
         self.cached_commands: dict[tuple[str, str], tuple[str, Any]] = {}
@@ -53,9 +66,68 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             if cached_device_serial == device_serial:
                 device_detail[command] = command_value
 
+    def _snapshot(self) -> dict[str, Any]:
+        """Return the coordinator's data dict.
+
+        Built in one place because there are two callers, the poll and the
+        single device refresh, and when they were written out separately the
+        second one quietly went stale every time a field was added.
+        """
+        return {
+            "zones": self.zones,
+            "devices": self.devices,
+            "device_profiles": self.device_profiles,
+            "wireless_sensors": self.wireless_sensors,
+            "device_statuses": self.device_statuses,
+            "zone_notifications": self.zone_notifications,
+            "device_prohibits": self.device_prohibits,
+            "device_connections": self.device_connections,
+            "site": self.site,
+            "site_weather": self.site_weather,
+            "active_alerts": self.active_alerts,
+        }
+
+    @property
+    def site_name(self) -> str:
+        """Return the site's name, falling back to something printable."""
+        return self.site.get("name") or "Kumo Cloud site"
+
+    async def _async_update_site_data(self) -> None:
+        """Fetch the two account-wide extras.
+
+        Neither is per zone, so this is two requests however many units the
+        account has. Failures are logged and dropped: outdoor weather and the
+        alert list are nice to have, and neither is worth failing a refresh
+        that otherwise succeeded.
+        """
+        site, weather, alerts = await asyncio.gather(
+            self.api.get_site(self.site_id),
+            self.api.get_site_weather(self.site_id),
+            self.api.get_active_notifications(),
+            return_exceptions=True,
+        )
+
+        if isinstance(site, dict):
+            self.site = site
+        elif isinstance(site, Exception):
+            _LOGGER.debug("Failed to fetch site record: %s", site)
+
+        if isinstance(weather, dict):
+            self.site_weather = weather
+        elif isinstance(weather, Exception):
+            _LOGGER.debug("Failed to fetch site weather: %s", weather)
+
+        if isinstance(alerts, dict):
+            self.active_alerts = alerts.get("data") or []
+        elif isinstance(alerts, Exception):
+            _LOGGER.debug("Failed to fetch active alerts: %s", alerts)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Kumo Cloud."""
         try:
+            slow_tier = self._refresh_count % SLOW_TIER_EVERY == 0
+            self._refresh_count += 1
+
             # Get zones for the site
             zones = await self.api.get_zones(self.site_id)
 
@@ -65,6 +137,11 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             wireless_sensors = {}
             device_statuses = {}
             zone_notifications = {}
+            device_prohibits = dict(self.device_prohibits)
+            device_connections = dict(self.device_connections)
+
+            if slow_tier:
+                await self._async_update_site_data()
 
             for zone in zones:
                 if zone.get("adapter"):
@@ -84,6 +161,13 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                     if has_sensor:
                         task_keys.append("sensor")
                         tasks.append(self.api.get_wireless_sensor(device_serial))
+
+                    if slow_tier:
+                        task_keys += ["prohibits", "connection"]
+                        tasks += [
+                            self.api.get_device_prohibits(device_serial),
+                            self.api.get_device_recent_connected(device_serial),
+                        ]
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -115,6 +199,13 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                     if has_sensor and result_map.get("sensor"):
                         wireless_sensors[device_serial] = result_map["sensor"]
 
+                    # Slow tier results are carried over from the previous
+                    # refresh on the cycles where they were not fetched.
+                    if result_map.get("prohibits"):
+                        device_prohibits[device_serial] = result_map["prohibits"]
+                    if result_map.get("connection"):
+                        device_connections[device_serial] = result_map["connection"]
+
             # Store the data for access by entities
             self.zones = zones
             self.devices = devices
@@ -122,15 +213,10 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             self.wireless_sensors = wireless_sensors
             self.device_statuses = device_statuses
             self.zone_notifications = zone_notifications
+            self.device_prohibits = device_prohibits
+            self.device_connections = device_connections
 
-            return {
-                "zones": zones,
-                "devices": devices,
-                "device_profiles": device_profiles,
-                "wireless_sensors": wireless_sensors,
-                "device_statuses": device_statuses,
-                "zone_notifications": zone_notifications,
-            }
+            return self._snapshot()
 
         except KumoCloudAuthError:
             # Reactive token refresh: a 401 surfaced mid-poll, despite
@@ -189,14 +275,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                     break
 
             # Update the coordinator's data dict
-            self.data = {
-                "zones": self.zones,
-                "devices": self.devices,
-                "device_profiles": self.device_profiles,
-                "wireless_sensors": self.wireless_sensors,
-                "device_statuses": self.device_statuses,
-                "zone_notifications": self.zone_notifications,
-            }
+            self.data = self._snapshot()
 
             # Notify all listeners that data has been updated
             self.async_update_listeners()
@@ -314,6 +393,35 @@ class KumoCloudDevice:
     def zone_notification_data(self) -> dict[str, Any] | None:
         """Get zone notification preferences (filter reminders, alert settings)."""
         return self.coordinator.zone_notifications.get(self.zone_id)
+
+    @property
+    def prohibits_data(self) -> dict[str, Any] | None:
+        """Get the wall remote lockout state."""
+        return self.coordinator.device_prohibits.get(self.device_serial)
+
+    @property
+    def connection_data(self) -> dict[str, Any] | None:
+        """Get last connection time and pending firmware upgrade."""
+        return self.coordinator.device_connections.get(self.device_serial)
+
+    @property
+    def display_config(self) -> dict[str, Any]:
+        """Get what the indoor unit is showing on its own display.
+
+        Carries `filter`, `defrost`, `hotAdjust` and `standby`. The filter
+        flag is the unit's own opinion, unlike the reminder date in the zone
+        notification preferences, which is just a 30 day calendar.
+        """
+        return self.device_data.get("displayConfig") or {}
+
+    @property
+    def alerts(self) -> list[dict[str, Any]]:
+        """Get active alerts that name this zone, plus account-wide ones."""
+        return [
+            alert
+            for alert in self.coordinator.active_alerts
+            if alert.get("zoneId") in (None, self.zone_id)
+        ]
 
     @property
     def available(self) -> bool:

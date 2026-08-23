@@ -39,8 +39,12 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import KumoCloudConfigEntry, KumoCloudDevice
-from .entity import KumoCloudEntity
+from .coordinator import (
+    KumoCloudConfigEntry,
+    KumoCloudDataUpdateCoordinator,
+    KumoCloudDevice,
+)
+from .entity import KumoCloudEntity, KumoCloudSiteEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +72,11 @@ async def async_setup_entry(
         """Create entities for anything we have not seen before."""
         new: list[SensorEntity] = []
 
+        for entity in build_site_sensors(coordinator):
+            if entity.unique_id not in known:
+                known.add(entity.unique_id)
+                new.append(entity)
+
         for zone in coordinator.zones:
             adapter = zone.get("adapter")
             if not adapter:
@@ -81,6 +90,11 @@ async def async_setup_entry(
                 KumoCloudFirmwareSensor(device),
                 KumoCloudWiFiSignalSensor(device),
                 KumoCloudFilterReminderSensor(device),
+                KumoCloudStatusCodeSensor(device),
+                KumoCloudSetpointLimitSensor(device, "minimum"),
+                KumoCloudSetpointLimitSensor(device, "maximum"),
+                KumoCloudRemoteLockoutSensor(device),
+                KumoCloudAlertSensor(device),
             ]
             if adapter.get("hasSensor", False):
                 candidates += [
@@ -350,3 +364,204 @@ class KumoCloudWirelessHumiditySensor(KumoCloudEntity, SensorEntity):
         if humidity is not None:
             return round(humidity, 1)
         return None
+
+
+# =============================================================================
+# Diagnostics the API reports but nothing used to surface
+# =============================================================================
+
+
+class KumoCloudStatusCodeSensor(KumoCloudEntity, SensorEntity):
+    """The two character code the indoor unit shows on its own display."""
+
+    _attr_name = "Status code"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_status_code"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the code. A0 is the healthy one."""
+        return self.device.device_data.get("twoFiguresCode")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the fault detail alongside the code."""
+        unusual = self.device.device_data.get("unusualFigures")
+        return {"unusual_figures": unusual} if unusual else {}
+
+
+class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
+    """One end of the adapter's configured setpoint range.
+
+    This is the limit stored on the adapter, which is not the same as the
+    range the hardware supports. The two differ per unit: on one account the
+    profile allows heat down to 10 C while the adapter is set to 16 C.
+
+    Read only for now. The Comfort app changes these over its local socket
+    rather than the cloud API, and the account preference that gates the
+    feature, `isMinMaxSetpointsEnabled`, is off by default.
+    """
+
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device: KumoCloudDevice, bound: str) -> None:
+        """Initialize for either the minimum or the maximum bound."""
+        super().__init__(device)
+        self._bound = bound
+        self._attr_name = f"{bound.capitalize()} setpoint limit"
+        self._attr_unique_id = f"{device.device_serial}_{bound}_setpoint_limit"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the configured bound."""
+        status = self.device.device_status_data
+        if status is None:
+            return None
+        return status.get("minSetPoint" if self._bound == "minimum" else "maxSetPoint")
+
+
+class KumoCloudRemoteLockoutSensor(KumoCloudEntity, SensorEntity):
+    """What the wall remote is currently locked out of.
+
+    `/devices/{serial}/prohibits` reports `local`, `global` and `effective`
+    blocks, each with `power`, `mode` and `setpoint`. Only `effective`
+    describes what the remote can actually do, so that is the state; the
+    other two are attributes for anyone working out where a lock came from.
+    """
+
+    _attr_name = "Remote lockout"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:remote-off"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_remote_lockout"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the locked controls, or "none"."""
+        prohibits = self.device.prohibits_data
+        if prohibits is None:
+            return None
+        effective = prohibits.get("effective") or {}
+        locked = sorted(name for name, value in effective.items() if value)
+        return ", ".join(locked) if locked else "none"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the local and global blocks separately."""
+        prohibits = self.device.prohibits_data
+        if prohibits is None:
+            return {}
+        return {
+            "local": prohibits.get("local"),
+            "global": prohibits.get("global"),
+        }
+
+
+class KumoCloudAlertSensor(KumoCloudEntity, SensorEntity):
+    """Count of unresolved alerts that apply to this zone."""
+
+    _attr_name = "Active alerts"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:bell-alert-outline"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_active_alerts"
+
+    @property
+    def native_value(self) -> int:
+        """Return how many alerts are open."""
+        return len(self.device.alerts)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose what the alerts are."""
+        return {
+            "alerts": [
+                {
+                    "severity": alert.get("severity"),
+                    "event_type": alert.get("eventType"),
+                    "created_at": alert.get("createdAt"),
+                }
+                for alert in self.device.alerts
+            ]
+        }
+
+
+# =============================================================================
+# Site level sensors
+# =============================================================================
+
+
+class KumoCloudOutdoorSensor(KumoCloudSiteEntity, SensorEntity):
+    """Outdoor conditions where the site is.
+
+    This comes from `/sites/{id}/weather`, which is the weather service the
+    Comfort app itself displays. It is **not** a reading from the equipment.
+    A Kumo Station would report a real outdoor coil temperature through
+    `kumo-properties.outdoorAirTemperature`, but that field stays null
+    without one.
+    """
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: KumoCloudDataUpdateCoordinator,
+        key: str,
+        name: str,
+        device_class: SensorDeviceClass,
+        unit: str,
+    ) -> None:
+        """Initialize one outdoor reading."""
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_name = name
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+        self._attr_suggested_display_precision = 0
+        self._attr_unique_id = f"{coordinator.site_id}_outdoor_{key}"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the reading from the weather payload."""
+        return (self.coordinator.site_weather.get("main") or {}).get(self._key)
+
+    @property
+    def available(self) -> bool:
+        """Return False until the weather payload has arrived."""
+        return super().available and self.native_value is not None
+
+
+def build_site_sensors(
+    coordinator: KumoCloudDataUpdateCoordinator,
+) -> list[SensorEntity]:
+    """Return the site level sensors."""
+    return [
+        KumoCloudOutdoorSensor(
+            coordinator,
+            "temp",
+            "Outdoor temperature",
+            SensorDeviceClass.TEMPERATURE,
+            UnitOfTemperature.CELSIUS,
+        ),
+        KumoCloudOutdoorSensor(
+            coordinator,
+            "humidity",
+            "Outdoor humidity",
+            SensorDeviceClass.HUMIDITY,
+            PERCENTAGE,
+        ),
+    ]

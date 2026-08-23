@@ -28,6 +28,18 @@ TO_REDACT = {
     "ssid",
     "routerSsid",
     "ipAddress",
+    # The site record carries a postal address, and the weather payload
+    # carries the coordinates it was looked up from. Both locate the house.
+    "address",
+    "address2",
+    "city",
+    "state",
+    "zip",
+    "coord",
+    "mak",
+    "baseMAK",
+    "installerName",
+    "installerNumber",
 }
 
 
@@ -46,6 +58,13 @@ async def async_get_config_entry_diagnostics(
         "zone_notifications": async_redact_data(
             coordinator.zone_notifications, TO_REDACT
         ),
+        "device_prohibits": async_redact_data(coordinator.device_prohibits, TO_REDACT),
+        "device_connections": async_redact_data(
+            coordinator.device_connections, TO_REDACT
+        ),
+        "site": async_redact_data(coordinator.site, TO_REDACT),
+        "site_weather": async_redact_data(coordinator.site_weather, TO_REDACT),
+        "active_alerts": async_redact_data(coordinator.active_alerts, TO_REDACT),
     }
 
 

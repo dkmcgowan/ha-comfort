@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -38,4 +38,32 @@ class KumoCloudEntity(CoordinatorEntity[KumoCloudDataUpdateCoordinator]):
             model=model_info.get("materialDescription"),
             sw_version=model_info.get("serialProfile"),
             serial_number=device_data.get("serialNumber") if device_data else None,
+            via_device=(DOMAIN, self.device.coordinator.site_id),
+        )
+
+
+class KumoCloudSiteEntity(CoordinatorEntity[KumoCloudDataUpdateCoordinator]):
+    """Base for entities that belong to the site rather than to one unit.
+
+    Outdoor conditions are the obvious case: they describe where the house
+    is, not what any single indoor unit is doing, so hanging them off one
+    arbitrary zone would be misleading. The site also becomes the `via_device`
+    parent for every indoor unit, which gives the device page a sensible tree.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: KumoCloudDataUpdateCoordinator) -> None:
+        """Initialize against the coordinator."""
+        super().__init__(coordinator)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the site's device entry."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.site_id)},
+            name=self.coordinator.site_name,
+            manufacturer="Mitsubishi Electric",
+            model="Kumo Cloud site",
+            entry_type=DeviceEntryType.SERVICE,
         )
