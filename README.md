@@ -25,6 +25,10 @@ wireless-sensor entities.
 - Mitsubishi-accurate Fahrenheit/Celsius conversion (no setpoint drift)
 - `HVACAction.IDLE` reported when a zone is at setpoint, so tiles, energy
   dashboards, and automations don't see a unit as always heating/cooling
+- Live updates: the integration subscribes to the cloud's push channel, so a
+  change made at the wall remote or in the Comfort app shows up in about a
+  second rather than at the next poll. Polling continues as a heartbeat and
+  as the fallback if the push channel is unavailable
 - Command caching to prevent state bouncing while the cloud API catches up
   (the API can lag the actual device by up to a minute)
 - Automatic token refresh, rate-limit handling with exponential backoff,

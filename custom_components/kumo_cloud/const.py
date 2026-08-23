@@ -26,3 +26,14 @@ OPERATION_MODE_AUTO_HEAT = "autoHeat"
 
 # Coordinator polling
 DEFAULT_SCAN_INTERVAL = 60
+
+# When the push channel is up, the poll drops back to a heartbeat: it proves
+# the account still works, refreshes the fields push never sends (zones,
+# profiles, wireless sensors), and replaces records wholesale so a field that
+# genuinely went null gets cleared. Push carries the latency-sensitive part.
+PUSH_SCAN_INTERVAL = 300
+
+# If push has delivered nothing for this long, stop trusting it and go back
+# to the normal poll. Push is event driven and can legitimately go quiet, so
+# this is deliberately several times longer than any expected gap.
+PUSH_STALE_AFTER = 1800

@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.6.0] - 2026-08-23
+
+Live updates. The cloud runs a push channel that the Comfort app uses
+instead of polling, and this release subscribes to it. Changes made at the
+wall remote or in the app now reach Home Assistant in about a second rather
+than up to a minute later.
+
+### Added
+
+- **Push updates over the cloud's Socket.IO channel.** It accepts the same
+  bearer token the REST API already uses, so setup is unchanged and no extra
+  credential is involved. Subscriptions are re-sent on every reconnect, and
+  an unauthorized socket triggers a token refresh and a retry, which is what
+  the Comfort app does.
+- **`python-socketio`** as the integration's first requirement.
+
+### Changed
+
+- **Polling continues as a heartbeat.** Push is event driven and can go
+  quiet for long stretches with nothing wrong, so silence alone cannot tell
+  you the socket died. While push is healthy the poll drops to every five
+  minutes, and it returns to every minute the moment push disconnects or
+  stops delivering. The poll also still carries everything push does not
+  send: zones, profiles, wireless sensors, weather and alerts.
+- **The integration degrades to polling** if the push channel will not open.
+  That is logged, not raised.
+
+### Fixed
+
+- **Nulls in a pushed payload no longer clear fields.** Observed live: two of
+  four adapters sent `spHeat: null` in a delta a second after a full snapshot
+  had given them real setpoints. Treating that as a value would blank a heat
+  setpoint until the next poll.
+
 ## [1.5.0] - 2026-08-23
 
 First release from the fork at

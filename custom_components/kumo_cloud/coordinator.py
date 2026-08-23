@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 import logging
+import time
 from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    PUSH_SCAN_INTERVAL,
+    PUSH_STALE_AFTER,
+)
+from .push import KumoCloudPush, merge_device_update
 
 type KumoCloudConfigEntry = ConfigEntry["KumoCloudDataUpdateCoordinator"]
 
@@ -52,6 +59,11 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         # Counts refreshes so the slow tier can run every Nth one.
         self._refresh_count = 0
 
+        # Live updates. Stays None when the push channel could not be opened,
+        # in which case everything below falls back to polling alone.
+        self.push: KumoCloudPush | None = None
+        self._last_push: float | None = None
+
         # Instance variable to store cached commands
         self.cached_commands: dict[tuple[str, str], tuple[str, Any]] = {}
 
@@ -65,6 +77,93 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         for (cached_device_serial, command), (_, command_value) in self.cached_commands.items():
             if cached_device_serial == device_serial:
                 device_detail[command] = command_value
+
+    # ---- Push channel --------------------------------------------------
+
+    async def async_start_push(self) -> None:
+        """Open the live update channel, if it will open.
+
+        Called after the first poll so the device list is known. Failure is
+        not fatal and is not raised: the integration polls exactly as it did
+        before this existed.
+        """
+        push = KumoCloudPush(
+            access_token_provider=lambda: self.api.access_token,
+            token_refresher=self.api.refresh_access_token,
+            on_device_update=self._handle_push_update,
+        )
+        if await push.async_start(self._serials()):
+            self.push = push
+            self._apply_push_interval()
+            _LOGGER.debug("Push channel open, poll interval now %s", self.update_interval)
+
+    async def async_stop_push(self) -> None:
+        """Close the live update channel."""
+        if self.push is not None:
+            await self.push.async_stop()
+            self.push = None
+
+    def _serials(self) -> list[str]:
+        """Return every adapter serial on the site."""
+        return [
+            zone["adapter"]["deviceSerial"]
+            for zone in self.zones
+            if zone.get("adapter")
+        ]
+
+    @property
+    def push_healthy(self) -> bool:
+        """Return whether push is connected and has been delivering.
+
+        A connected socket that has said nothing for a long time is not
+        obviously working, and the difference matters because it decides how
+        often we poll.
+        """
+        if self.push is None or not self.push.connected:
+            return False
+        if self._last_push is None:
+            return False
+        return (time.monotonic() - self._last_push) < PUSH_STALE_AFTER
+
+    def _apply_push_interval(self) -> None:
+        """Slow the poll to a heartbeat while push is healthy."""
+        wanted = timedelta(
+            seconds=PUSH_SCAN_INTERVAL if self.push_healthy else DEFAULT_SCAN_INTERVAL
+        )
+        if self.update_interval != wanted:
+            self.update_interval = wanted
+            _LOGGER.debug("Poll interval now %s", wanted)
+
+    @callback
+    def _handle_push_update(self, serial: str, payload: dict[str, Any]) -> None:
+        """Apply one pushed device payload and tell the entities.
+
+        Writes into both the device record and the matching zone adapter,
+        because different properties read from different places.
+        """
+        self._last_push = time.monotonic()
+
+        if serial not in self.devices:
+            # A device we have not polled yet. The next refresh will pick it
+            # up properly; merging into nothing would produce a partial
+            # record that entities would read as missing fields.
+            return
+
+        merged = merge_device_update(self.devices[serial], payload)
+        # Anything the user just asked for outranks what the cloud reports
+        # until the cloud catches up, same rule the poll follows.
+        self._process_pending_commands(serial, merged)
+        self.devices[serial] = merged
+
+        for zone in self.zones:
+            adapter = zone.get("adapter")
+            if adapter and adapter.get("deviceSerial") == serial:
+                zone["adapter"] = merge_device_update(adapter, payload)
+                break
+
+        self.data = self._snapshot()
+        self._apply_push_interval()
+        self.async_update_listeners()
 
     def _snapshot(self) -> dict[str, Any]:
         """Return the coordinator's data dict.
@@ -215,6 +314,13 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             self.zone_notifications = zone_notifications
             self.device_prohibits = device_prohibits
             self.device_connections = device_connections
+
+            # A zone added since the last poll needs subscribing to, and a
+            # push channel that has gone quiet or dropped needs the poll to
+            # speed back up.
+            if self.push is not None:
+                await self.push.async_set_serials(self._serials())
+            self._apply_push_interval()
 
             return self._snapshot()
 

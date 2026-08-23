@@ -43,6 +43,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) ->
     coordinator = KumoCloudDataUpdateCoordinator(hass, api, entry.data[CONF_SITE_ID])
     await coordinator.async_config_entry_first_refresh()
 
+    # After the first poll, because the push channel subscribes per device
+    # and the device list comes from that poll. A push channel that will not
+    # open is not an error; the coordinator keeps polling.
+    await coordinator.async_start_push()
+    entry.async_on_unload(coordinator.async_stop_push)
+
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
