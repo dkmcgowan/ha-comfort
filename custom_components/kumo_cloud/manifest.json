@@ -17,5 +17,5 @@
     "loggers": ["kumo_cloud"],
     "quality_scale": "bronze",
     "requirements": [],
-    "version": "1.4.1"
+    "version": "1.5.0"
 }

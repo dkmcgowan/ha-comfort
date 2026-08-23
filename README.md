@@ -11,6 +11,10 @@ wireless-sensor entities.
 
 - Full climate control: target temperature, HVAC mode, fan speed, vane position
 - Heat, Cool, Dry, Fan-only, and Auto (HEAT_COOL) modes with dual setpoints in Auto
+- A target temperature in Dry mode on units that support one, with the
+  setpoint range following whichever mode the unit is actually in
+- Diagnostics the unit reports about itself: filter, defrost, standby, fault
+  and status code, remote lockout, and pending firmware updates
 - Per-zone temperature and humidity sensor entities
 - Wireless sensor support (PAC-USWHS003-TH-1): battery, signal strength,
   temperature, humidity, auto-detected via the zone's `hasSensor` flag
@@ -82,6 +86,25 @@ Per zone:
 | `sensor.<zone>_firmware` | WiFi adapter firmware version (diagnostic) |
 | `sensor.<zone>_wifi_signal` | WiFi adapter RSSI (diagnostic) |
 | `sensor.<zone>_filter_reminder` | Next filter maintenance date (diagnostic) |
+| `sensor.<zone>_status_code` | The two character code the unit shows on its own display. `A0` is healthy |
+| `sensor.<zone>_minimum_setpoint_limit` | The adapter's configured lower setpoint bound |
+| `sensor.<zone>_maximum_setpoint_limit` | The adapter's configured upper setpoint bound |
+| `sensor.<zone>_remote_lockout` | Which controls the wall remote is locked out of |
+| `sensor.<zone>_active_alerts` | Count of unresolved alerts, with the detail in attributes |
+| `binary_sensor.<zone>_filter` | The indoor unit's own filter flag |
+| `binary_sensor.<zone>_defrost` | Defrost cycle running |
+| `binary_sensor.<zone>_standby` | Unit in standby |
+| `binary_sensor.<zone>_hot_adjust` | Hot adjust active |
+| `binary_sensor.<zone>_fault` | Set when the unit reports an error |
+| `binary_sensor.<zone>_cloud_connection` | Whether the adapter is reaching the cloud |
+| `binary_sensor.<zone>_firmware_update` | Set when the adapter has an update waiting |
+
+Once per site:
+
+| Entity | Notes |
+|---|---|
+| `sensor.<site>_outdoor_temperature` | Outdoor conditions for the site's location |
+| `sensor.<site>_outdoor_humidity` | Outdoor conditions for the site's location |
 
 When a PAC-USWHS003-TH-1 wireless sensor is attached:
 
@@ -92,7 +115,14 @@ When a PAC-USWHS003-TH-1 wireless sensor is attached:
 | `sensor.<zone>_wireless_sensor_temperature` | Wireless sensor temperature |
 | `sensor.<zone>_wireless_sensor_humidity` | Wireless sensor humidity |
 
-All entities for a given indoor unit are grouped under a single HA device. The device page shows the model (e.g. `MSZ-FH09NA`), the unit's firmware (`serialProfile`), and the serial number reported by the Comfort cloud.
+All entities for a given indoor unit are grouped under a single HA device. The device page shows the model (e.g. `MSZ-FH09NA`), the unit's firmware (`serialProfile`), and the serial number reported by the Comfort cloud. Each indoor unit sits under a site device, which carries the outdoor conditions.
+
+### About outdoor temperature
+
+The outdoor sensors report the weather where your site is, from the same
+service the Comfort app uses. They are **not** a reading from your
+equipment. A real outdoor coil temperature needs a Kumo Station accessory,
+and without one the field the cloud would report it in stays empty.
 
 ## Behavior notes
 

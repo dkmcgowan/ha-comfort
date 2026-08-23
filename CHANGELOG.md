@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.5.0] - 2026-08-23
+
+First release from the fork at
+[dkmcgowan/ha-comfort](https://github.com/dkmcgowan/ha-comfort). Fixes two
+bugs that stopped the integration working properly on units in dry mode and
+on hardware added after setup, and surfaces a large amount of state the API
+was already returning and nothing read.
+
+Every field read here was verified against a live account before it shipped.
+
+### Fixed
+
+- **Dry mode accepted no target temperature.** On units whose profile
+  reports `usesSetPointInDryMode`, Home Assistant showed no setpoint control
+  at all, and calling `climate.set_temperature` while in dry built an empty
+  command and returned without sending anything or reporting a problem. Dry
+  reuses the cool setpoint. Units that do not support one still correctly
+  show no control.
+- **Setpoint range merged heat and cool.** `min_temp` and `max_temp` took
+  the widest of the two, so a unit that allows heat down to 10 C but cool
+  only to 16 C offered a cooling setpoint 11 F below what it accepts. The
+  range now follows the current mode.
+- **Hardware added after setup never appeared.** Pairing a wireless sensor
+  in the Comfort app, or adding a zone, produced no entities until the
+  config entry was reloaded by hand, because the entity list was built once
+  during setup. Both platforms now add on every refresh.
+- **Setpoints could bounce back.** They were read from the zone adapter
+  while the command cache writes to the device record, so a change could
+  visibly revert until the next poll caught up.
+- **Asking for a setpoint in a mode that has none** now raises a clear
+  error instead of silently doing nothing.
+- **Humidity reported five decimal places.** Whole percent on the climate
+  entity; the sensors keep the resolution and set a display precision.
+- **`manifest.json` carried an invalid `homeassistant` key**, which
+  hassfest rejects. The minimum version belongs in `hacs.json`, where it
+  already was.
+
+### Added
+
+- **Brand images.** The integration showed a blank placeholder everywhere.
+  Home Assistant 2026.3 and newer serve these from the integration itself.
+- **Binary sensors** for filter, defrost, standby, hot adjust, fault, cloud
+  connectivity and firmware update. The filter one reads the indoor unit's
+  own flag, which is a different thing from the existing filter reminder
+  sensor, that being a 30 day calendar.
+- **Sensors** for the status code the unit displays, the adapter's
+  configured setpoint limits, which controls the wall remote is locked out
+  of, and a count of unresolved alerts.
+- **Outdoor temperature and humidity**, on a new site device that every
+  indoor unit now hangs off. These come from the weather service the
+  Comfort app uses for the site's location. They are not a reading from
+  your equipment.
+- **Diagnostics** now include the new data, with the site's postal address
+  and coordinates redacted alongside the existing credentials.
+
+### Changed
+
+- **Renamed to "Mitsubishi Comfort (Kumo Cloud)".** Home Assistant Core
+  shipped a first-party `mitsubishi_comfort` integration in 2026.6 under
+  exactly the previous name, so the two were indistinguishable in the Add
+  Integration list. The domain is unchanged, so this remains a drop-in
+  replacement and no config entry is affected.
+- **Four new endpoints** back the additions. The two that are per unit run
+  every tenth refresh rather than every minute, because firmware state and
+  remote lockout do not change by the minute.
+
 ## [1.4.1] - 2026-05-29
 
 A cohesion pass: aligns module headers, finishes the exception-narrowing
