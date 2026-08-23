@@ -21,7 +21,6 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.CLIMATE,
     Platform.SENSOR,
-    Platform.SWITCH,
 ]
 
 async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) -> bool:

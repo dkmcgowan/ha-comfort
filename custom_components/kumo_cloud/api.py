@@ -323,13 +323,13 @@ class KumoCloudAPI:
     async def reset_filter(self, zone_id: str) -> dict[str, Any]:
         """Clear the zone's filter reminder.
 
-        Endpoint: POST /v3/zones/{zoneId}/reset-filter
+        Endpoint: PATCH /v3/zones/{zoneId}/reset-filter
 
-        **Unverified.** The path comes from the app's own endpoint catalog,
-        but this is a write and has not been fired against a real account,
-        so the method and the empty body are inferred rather than observed.
+        The method is PATCH, verified against a real account. POST, PUT,
+        DELETE and GET all return 404 on this route. It responds with the
+        zone's notification preferences.
         """
-        return await self._request("POST", f"/zones/{zone_id}/reset-filter", {})
+        return await self._request("PATCH", f"/zones/{zone_id}/reset-filter", {})
 
     # ---- Schedules, all on API v4 --------------------------------------
 
@@ -368,41 +368,62 @@ class KumoCloudAPI:
             "POST", f"/schedule-seasons/{season_id}/set-default", {}, api_version=API_V4
         )
 
-    async def set_season_status(self, season_id: str, running: bool) -> dict[str, Any]:
-        """Start or stop a season.
+    async def clear_season_events(
+        self, season_id: str, schedule_ids: list[str]
+    ) -> dict[str, Any]:
+        """Delete every event in the named schedules, keeping the schedules.
+
+        Endpoint: DELETE /v4/schedule-seasons/{seasonId}/clean
+        Body: `{"schedules": ["<scheduleId>", ...]}`, a list of schedule ids,
+        one per zone. Without the body the call returns
+        `400 {"error": {"schedules": "Required"}}`. Verified: returns 204 and
+        leaves every named schedule with zero events.
+        """
+        return await self._request(
+            "DELETE",
+            f"/schedule-seasons/{season_id}/clean",
+            {"schedules": schedule_ids},
+            api_version=API_V4,
+        )
+
+    async def set_zone_schedules(
+        self, season_id: str, schedules: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Replace the events on one or more zones' schedules.
+
+        Endpoint: POST /v4/schedule-seasons/{seasonId}/schedules
+        Body: `{"seasonId": ..., "schedules": [{"zone": "<zoneId>",
+        "events": [...]}]}`. Note `zone` is the id as a **plain string**, not
+        an object, which is the one thing the shape is easy to get wrong.
+
+        Each event is `{days, startTime, operationMode, fanSpeed,
+        airDirection, spCool, spHeat}` with `days` as two letter codes and
+        `startTime` as "HHMM". Verified: returns 201 with the stored
+        schedules. This replaces a zone's events rather than appending.
+        """
+        return await self._request(
+            "POST",
+            f"/schedule-seasons/{season_id}/schedules",
+            {"seasonId": season_id, "schedules": schedules},
+            api_version=API_V4,
+        )
+
+    async def set_season_running(self, season_id: str, running: bool) -> dict[str, Any]:
+        """Start or stop a season, which is how scheduling is turned on and off.
 
         Endpoint: POST /v4/schedule-seasons/{seasonId}/status
+        Body: `{"isRunning": bool}`. Verified: returns 200 with the updated
+        season record.
 
-        **Unverified.** The body shape is inferred from the field name the
-        season record uses; only the route and method are read from the app.
+        This stands in for `/sites/{id}/toggle-schedules`, which returns
+        `426 invalidAppVersion` on every API version tried and appears to be
+        closed to this client entirely.
         """
         return await self._request(
             "POST",
             f"/schedule-seasons/{season_id}/status",
             {"isRunning": running},
             api_version=API_V4,
-        )
-
-    async def clear_season_events(self, season_id: str) -> dict[str, Any]:
-        """Delete every event in a season, leaving the season itself.
-
-        Endpoint: DELETE /v4/schedule-seasons/{seasonId}/clean
-        """
-        return await self._request(
-            "DELETE", f"/schedule-seasons/{season_id}/clean", api_version=API_V4
-        )
-
-    async def set_site_schedules_enabled(self, site_id: str, enabled: bool) -> dict[str, Any]:
-        """Turn scheduling on or off for the whole site.
-
-        Endpoint: POST /v3/sites/{siteId}/toggle-schedules
-        This one is on v3, unlike the season routes.
-
-        **Unverified.** The body is inferred from the site record's
-        `schedulesEnabled` field.
-        """
-        return await self._request(
-            "POST", f"/sites/{site_id}/toggle-schedules", {"schedulesEnabled": enabled}
         )
 
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:

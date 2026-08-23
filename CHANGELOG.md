@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.9.0] - 2026-08-23
+
+Every write path is now fired against a real account. Three were wrong and
+one turned out to be impossible.
+
+### Fixed
+
+- **The filter reset button did nothing.** The endpoint is a **PATCH**, not
+  a POST. POST, PUT, DELETE and GET all return 404 on that route. Verified:
+  the reminder date moves.
+- **Clearing season events did nothing.** The call needs the schedule ids in
+  its body, `{"schedules": ["<id>", ...]}`, or it returns
+  `400 {"error": {"schedules": "Required"}}`. Verified: returns 204 and every
+  named schedule ends with zero events.
+- **Enabling and disabling schedules used a route that does not work.**
+  `/sites/{id}/toggle-schedules` returns `426` on every API version tried.
+  The service now starts and stops the running season instead, which does
+  the same job and is verified in both directions.
+
+### Removed
+
+- **The status LED switch.** The cloud accepts `ledDisabled` through both
+  `/devices/send-command` and a PATCH on the device record, returns 200 for
+  each, and changes nothing: the value reads back unchanged a minute later,
+  and the PATCH response echoes the old value. The app sets this over a
+  channel that is not the cloud API. Shipping a control that silently does
+  nothing is worse than not shipping it, so the LED is now a read-only
+  diagnostic binary sensor. The state was always correct; only the write
+  was fiction.
+
+### Added
+
+- **`kumo_cloud.set_schedule`**, now that the payload shape is known and
+  proven. It replaces one zone's timetable outright, because that is what
+  the API does. An empty event list clears the zone.
+
+### Changed
+
+- **The note about `426 invalidAppVersion` was too confident.** 1.8.0 framed
+  it as always meaning "wrong version prefix". It does not. It marks a route
+  this client may not use, and sometimes there is a working equivalent
+  elsewhere, as with the schedule seasons on v4, and sometimes there is none
+  at all, as with `toggle-schedules` and the comfort settings.
+
 ## [1.8.0] - 2026-08-23
 
 Schedules, which turned out not to be blocked at all.

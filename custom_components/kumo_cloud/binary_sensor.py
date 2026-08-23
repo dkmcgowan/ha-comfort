@@ -88,6 +88,20 @@ def _has_fault(device: KumoCloudDevice) -> bool | None:
     return None if code is None else code not in ("A0", "00", "")
 
 
+def _status_led(device: KumoCloudDevice) -> bool | None:
+    """Report whether the adapter's status LED is lit.
+
+    Read only, and it has to be. The cloud accepts `ledDisabled` through
+    both `/devices/send-command` and a PATCH on the device record, returns
+    200 for each, and changes nothing: the value reads back unchanged a
+    minute later, and the PATCH response echoes the old value. The app sets
+    this over a channel that is not the cloud API. Presented the right way
+    round, so on means lit, because the API stores the negative.
+    """
+    disabled = device.device_data.get("ledDisabled")
+    return None if disabled is None else not disabled
+
+
 def _hold_active(device: KumoCloudDevice) -> bool | None:
     """Report whether a hold is overriding the schedule on this zone.
 
@@ -195,6 +209,13 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
         device_class=BinarySensorDeviceClass.UPDATE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_update_available,
+    ),
+    KumoBinarySensorDescription(
+        key="status_led",
+        name="Status LED",
+        icon="mdi:led-on",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_status_led,
     ),
 )
 

@@ -44,3 +44,23 @@ clear_season_events:
       selector:
         config_entry:
           integration: kumo_cloud
+
+set_schedule:
+  fields:
+    zone:
+      required: true
+      example: Den
+      selector:
+        text:
+    events:
+      required: true
+      example: >-
+        [{"days": ["Mo", "Tu", "We", "Th", "Fr"], "start_time": "0715",
+          "operation_mode": "cool", "cool_setpoint": 22.0, "heat_setpoint": 19.0}]
+      selector:
+        object:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: kumo_cloud

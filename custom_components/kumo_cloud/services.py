@@ -6,10 +6,13 @@ automation or a template can consume, and the write side covers the things
 worth automating, switching season, enabling or disabling scheduling, and
 clearing events.
 
-Creating and editing individual events is **not** here. The payload is a
-whole week of per-zone events, and expressing that through a service schema
-would be worse than editing it in the Comfort app. Home Assistant's own
-automations are a better tool for that job anyway.
+`set_schedule` replaces one zone's timetable outright rather than editing
+individual events, because that is what the API does: a POST to a season's
+schedules overwrites the named zone's events. An empty list clears them.
+
+Every route and body here was verified against a real account, including
+the two that had to be corrected after the first attempt: `reset-filter` is
+a PATCH, and `clean` needs the schedule ids in its body.
 """
 
 from __future__ import annotations
@@ -38,17 +41,51 @@ SERVICE_GET_SCHEDULES = "get_schedules"
 SERVICE_SET_SEASON = "set_season"
 SERVICE_SET_SCHEDULES_ENABLED = "set_schedules_enabled"
 SERVICE_CLEAR_SEASON_EVENTS = "clear_season_events"
+SERVICE_SET_SCHEDULE = "set_schedule"
 
 ATTR_ENTRY_ID = "config_entry_id"
 ATTR_SEASON = "season"
 ATTR_ENABLED = "enabled"
+ATTR_ZONE = "zone"
+ATTR_EVENTS = "events"
+ATTR_DAYS = "days"
+ATTR_START_TIME = "start_time"
+ATTR_OPERATION_MODE = "operation_mode"
+ATTR_FAN_SPEED = "fan_speed"
+ATTR_AIR_DIRECTION = "air_direction"
+ATTR_COOL_SETPOINT = "cool_setpoint"
+ATTR_HEAT_SETPOINT = "heat_setpoint"
+
+# The API's own vocabulary, so these pass straight through.
+DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+MODES = ["cool", "heat", "dry", "vent", "auto", "off"]
 
 _ENTRY = {vol.Optional(ATTR_ENTRY_ID): cv.string}
+
+EVENT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DAYS): vol.All(cv.ensure_list, [vol.In(DAYS)], vol.Length(min=1)),
+        # "HHMM", which is what the API stores.
+        vol.Required(ATTR_START_TIME): vol.Match(r"^([01]\d|2[0-3])[0-5]\d$"),
+        vol.Required(ATTR_OPERATION_MODE): vol.In(MODES),
+        vol.Optional(ATTR_FAN_SPEED): cv.string,
+        vol.Optional(ATTR_AIR_DIRECTION): cv.string,
+        vol.Optional(ATTR_COOL_SETPOINT): vol.Coerce(float),
+        vol.Optional(ATTR_HEAT_SETPOINT): vol.Coerce(float),
+    }
+)
 
 SCHEMA_GET_SCHEDULES = vol.Schema(_ENTRY)
 SCHEMA_SET_SEASON = vol.Schema({**_ENTRY, vol.Required(ATTR_SEASON): cv.string})
 SCHEMA_SET_ENABLED = vol.Schema({**_ENTRY, vol.Required(ATTR_ENABLED): cv.boolean})
 SCHEMA_CLEAR = vol.Schema({**_ENTRY, vol.Optional(ATTR_SEASON): cv.string})
+SCHEMA_SET_SCHEDULE = vol.Schema(
+    {
+        **_ENTRY,
+        vol.Required(ATTR_ZONE): cv.string,
+        vol.Required(ATTR_EVENTS): vol.All(cv.ensure_list, [EVENT_SCHEMA]),
+    }
+)
 
 
 def _coordinator(hass: HomeAssistant, call: ServiceCall):
@@ -145,10 +182,63 @@ async def _set_season(call: ServiceCall) -> None:
 
 
 async def _set_schedules_enabled(call: ServiceCall) -> None:
-    """Turn scheduling on or off for the whole site."""
+    """Start or stop the running season, which is how scheduling is toggled.
+
+    Not `/sites/{id}/toggle-schedules`, which is closed to this client on
+    every API version tried. Starting and stopping the season achieves the
+    same thing and does work.
+    """
     coordinator = _coordinator(call.hass, call)
-    await coordinator.api.set_site_schedules_enabled(
-        coordinator.site_id, call.data[ATTR_ENABLED]
+    season = coordinator.active_season
+    if season is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="no_season"
+        )
+    await coordinator.api.set_season_running(season["id"], call.data[ATTR_ENABLED])
+    await coordinator.async_request_refresh()
+
+
+async def _set_schedule(call: ServiceCall) -> None:
+    """Replace one zone's scheduled events.
+
+    This replaces rather than appends: whatever is passed becomes the zone's
+    whole timetable, and an empty list clears it.
+    """
+    coordinator = _coordinator(call.hass, call)
+    season = coordinator.active_season
+    if season is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="no_season"
+        )
+
+    wanted = call.data[ATTR_ZONE]
+    zone_id = next(
+        (zone["id"] for zone in coordinator.zones if wanted in (zone["name"], zone["id"])),
+        None,
+    )
+    if zone_id is None:
+        known = ", ".join(zone["name"] for zone in coordinator.zones)
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_zone",
+            translation_placeholders={"zone": wanted, "known": known},
+        )
+
+    events = [
+        {
+            "days": event[ATTR_DAYS],
+            "startTime": event[ATTR_START_TIME],
+            "operationMode": event[ATTR_OPERATION_MODE],
+            "fanSpeed": event.get(ATTR_FAN_SPEED, "auto"),
+            "airDirection": event.get(ATTR_AIR_DIRECTION, "auto"),
+            "spCool": event.get(ATTR_COOL_SETPOINT),
+            "spHeat": event.get(ATTR_HEAT_SETPOINT),
+        }
+        for event in call.data[ATTR_EVENTS]
+    ]
+
+    await coordinator.api.set_zone_schedules(
+        season["id"], [{"zone": zone_id, "events": events}]
     )
     await coordinator.async_request_refresh()
 
@@ -162,8 +252,22 @@ async def _clear_season_events(call: ServiceCall) -> None:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="no_season"
         )
-    _LOGGER.warning("Clearing every scheduled event in season %s", season.get("name"))
-    await coordinator.api.clear_season_events(season["id"])
+    schedule_ids = [
+        entry["id"]
+        for entry in coordinator.zone_schedules.values()
+        if entry.get("id")
+    ]
+    if not schedule_ids:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="no_schedules"
+        )
+
+    _LOGGER.warning(
+        "Clearing every scheduled event in season %s across %d zones",
+        season.get("name"),
+        len(schedule_ids),
+    )
+    await coordinator.api.clear_season_events(season["id"], schedule_ids)
     await coordinator.async_request_refresh()
 
 
@@ -193,4 +297,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         SERVICE_CLEAR_SEASON_EVENTS,
         _clear_season_events,
         schema=SCHEMA_CLEAR,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_SCHEDULE, _set_schedule, schema=SCHEMA_SET_SCHEDULE
     )

@@ -63,6 +63,12 @@
       },
       "no_season": {
         "message": "This account has no schedule seasons."
+      },
+      "no_schedules": {
+        "message": "This season has no schedules to clear."
+      },
+      "unknown_zone": {
+        "message": "No zone called {zone}. Known zones: {known}."
       }
     },
     "services": {
@@ -90,9 +96,27 @@
           }
         }
       },
+      "set_schedule": {
+        "name": "Set a zone's schedule",
+        "description": "Replaces one zone's scheduled events. Whatever you pass becomes the whole timetable for that zone, and an empty list clears it.",
+        "fields": {
+          "zone": {
+            "name": "Zone",
+            "description": "The zone's name, as shown in the Comfort app."
+          },
+          "events": {
+            "name": "Events",
+            "description": "A list of events. Each needs days (Mo, Tu, We, Th, Fr, Sa, Su), start_time as HHMM, and operation_mode. Optionally fan_speed, air_direction, cool_setpoint and heat_setpoint, in Celsius."
+          },
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to change. Only needed when more than one is set up."
+          }
+        }
+      },
       "set_schedules_enabled": {
         "name": "Enable or disable schedules",
-        "description": "Turns scheduling on or off for the whole site.",
+        "description": "Starts or stops the running schedule season, which is how scheduling is turned on and off.",
         "fields": {
           "enabled": {
             "name": "Enabled",

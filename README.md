@@ -107,7 +107,7 @@ Per zone:
 | `binary_sensor.<zone>_schedule_active` | A schedule is running on this zone |
 | `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
 | `button.<zone>_reset_filter` | Clears the filter reminder |
-| `switch.<zone>_status_led` | The WiFi adapter's status light |
+| `binary_sensor.<zone>_status_led` | Whether the WiFi adapter's status light is lit. Read only, see below |
 
 Once per site:
 
@@ -135,11 +135,33 @@ Four services:
 | `kumo_cloud.set_season` | Makes a schedule season the active one |
 | `kumo_cloud.set_schedules_enabled` | Turns scheduling on or off for the whole site |
 | `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
+| `kumo_cloud.set_schedule` | Replaces one zone's timetable. An empty event list clears it |
 
 ```yaml
 action: kumo_cloud.get_schedules
 response_variable: schedules
 ```
+
+```yaml
+action: kumo_cloud.set_schedule
+data:
+  zone: Den
+  events:
+    - days: [Mo, Tu, We, Th, Fr]
+      start_time: "0715"
+      operation_mode: cool
+      cool_setpoint: 22.0
+      heat_setpoint: 19.0
+```
+
+Setpoints are in Celsius, because that is what the API stores.
+
+### The adapter's status LED is read only
+
+The cloud reports whether the light is on and will not let you change it. It
+accepts the field, returns 200, and does nothing: the value reads back
+unchanged. The Comfort app sets it over a channel this integration does not
+use. So it is a sensor rather than a switch, which is the honest shape.
 
 ### Controlling the whole house
 

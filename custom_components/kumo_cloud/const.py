@@ -11,10 +11,21 @@ CONF_REFRESH_TOKEN = "refresh_token"
 API_BASE_URL = "https://app-prod.kumocloud.com"
 API_VERSION = "v3"
 
-# The Comfort app puts 88 of its 97 endpoints on v3 and nine on v4: every
-# schedule season route, and the site hold. Calling a v4 route on v3 returns
-# `426 invalidAppVersion`, which reads like an app version problem and is
-# not one. No header value fixes it; only the version prefix does.
+# The Comfort app puts most of its endpoints on v3 and nine on v4: every
+# schedule season route, and the site hold.
+#
+# `426 invalidAppVersion` does not mean what it says. No value of
+# x-app-version changes it, including the exact one the app sends. It marks
+# a route this client may not use, and it shows up in two different
+# situations:
+#   - There is a working equivalent elsewhere. The schedule family is the
+#     example: `/v3/zones/{id}/schedules` is 426 forever, while the season
+#     routes on v4 work.
+#   - There is no working route at all. `/sites/{id}/toggle-schedules` and
+#     the comfort settings endpoints are 426 on every version tried, while
+#     the neighboring `/sites/{id}/toggle-notifications` returns 200 on v3.
+# So a 426 is worth hunting for an alternative, but finding one is not
+# guaranteed.
 API_V4 = "v4"
 API_APP_VERSION = "3.2.4"
 TOKEN_REFRESH_INTERVAL = 1200  # seconds (20 min)
