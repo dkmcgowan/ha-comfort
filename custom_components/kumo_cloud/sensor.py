@@ -38,6 +38,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .coordinator import (
     KumoCloudConfigEntry,
@@ -45,6 +46,7 @@ from .coordinator import (
     KumoCloudDevice,
 )
 from .entity import KumoCloudEntity, KumoCloudSiteEntity
+from .schedule import describe, next_event, zone_timezone
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,6 +98,7 @@ async def async_setup_entry(
                 KumoCloudRemoteLockoutSensor(device),
                 KumoCloudAlertSensor(device),
                 KumoCloudConnectionSensor(device),
+                KumoCloudNextScheduleSensor(device),
             ]
             if adapter.get("hasSensor", False):
                 candidates += [
@@ -548,6 +551,50 @@ class KumoCloudConnectionSensor(KumoCloudEntity, SensorEntity):
                 1 for row in history if not row.get("isConnected")
             ),
         }
+
+
+class KumoCloudNextScheduleSensor(KumoCloudEntity, SensorEntity):
+    """When this zone's schedule next changes something.
+
+    Events carry weekdays and a time but no date, so the next occurrence is
+    worked out by searching forward from now in the zone's own timezone.
+    """
+
+    _attr_name = "Next schedule change"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:calendar-arrow-right"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_next_schedule"
+
+    def _next(self) -> tuple[datetime, dict[str, Any]] | None:
+        """Find the soonest upcoming event."""
+        events = self.device.schedule_events
+        if not events:
+            return None
+        tzinfo = zone_timezone(self.device.device_data.get("timeZone"))
+        return next_event(events, dt_util.utcnow(), tzinfo)
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return when the next event fires."""
+        found = self._next()
+        return None if found is None else found[0]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Describe the upcoming event and how many are configured."""
+        attributes: dict[str, Any] = {"event_count": len(self.device.schedule_events)}
+        season = self.coordinator.active_season
+        if season:
+            attributes["season"] = season.get("name")
+            attributes["season_running"] = season.get("isRunning")
+        found = self._next()
+        if found is not None:
+            attributes.update(describe(found[1]))
+        return attributes
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:

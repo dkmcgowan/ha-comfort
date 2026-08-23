@@ -10,6 +10,12 @@ CONF_REFRESH_TOKEN = "refresh_token"
 # Kumo Cloud REST API
 API_BASE_URL = "https://app-prod.kumocloud.com"
 API_VERSION = "v3"
+
+# The Comfort app puts 88 of its 97 endpoints on v3 and nine on v4: every
+# schedule season route, and the site hold. Calling a v4 route on v3 returns
+# `426 invalidAppVersion`, which reads like an app version problem and is
+# not one. No header value fixes it; only the version prefix does.
+API_V4 = "v4"
 API_APP_VERSION = "3.2.4"
 TOKEN_REFRESH_INTERVAL = 1200  # seconds (20 min)
 TOKEN_EXPIRY_MARGIN = 300  # refresh this many seconds before expiry

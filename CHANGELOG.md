@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.8.0] - 2026-08-23
+
+Schedules, which turned out not to be blocked at all.
+
+The `426 invalidAppVersion` that made them look unreachable had nothing to
+do with the app version. The schedule endpoints are on **API v4** and this
+integration only ever spoke v3, so the v3 router was rejecting a route it
+does not have, with a badly chosen error. The Comfort app passes
+`apiVersion: '4'` on exactly nine of its 97 endpoints: every schedule season
+route, and the site hold. Everything else, including everything this
+integration already called, is correctly on v3.
+
+### Added
+
+- **`sensor.<zone>_next_schedule_change`**, the timestamp of the next
+  scheduled change with the mode and setpoints it will apply in its
+  attributes. Events carry weekdays and a time but no date, so the next
+  occurrence is computed in the zone's own timezone.
+- **`kumo_cloud.get_schedules`**, a service returning every zone's schedule
+  as response data, including the next change per zone.
+- **`kumo_cloud.set_season`**, to make a schedule season active.
+- **`kumo_cloud.set_schedules_enabled`**, to turn scheduling on or off for
+  the site.
+- **`kumo_cloud.clear_season_events`**, to delete every event in a season.
+
+Creating and editing individual events is deliberately not exposed. The
+payload is a whole per-zone weekly timetable, and a service schema for that
+would be worse than the Comfort app's own editor.
+
+### Fixed
+
+- **The README and release notes claimed schedules were unreachable.** They
+  are not, and both now describe what actually works.
+
+### Known unverified
+
+`set_season`, `set_schedules_enabled` and `clear_season_events` all write,
+and none has been fired against a real account. Reading is fully verified
+against a live schedule. The two bodies that could not be read out of the
+app, the season status flag and the site schedule toggle, are inferred from
+the field names in the records they change.
+
 ## [1.7.0] - 2026-08-23
 
 ### Added
@@ -27,8 +69,8 @@
   its accessories, MHK2 and air handler coils, because the author has none of
   that hardware and will not ship an untestable guess; everything touching
   the account, because credentials and postal addresses have no business in a
-  home automation system; provisioning; and schedules, which reject this
-  client no matter what is sent.
+  home automation system; and provisioning. This release also claimed
+  schedules were permanently blocked, which was wrong; see 1.8.0.
 
 ### Known unverified
 

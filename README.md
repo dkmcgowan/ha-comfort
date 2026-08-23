@@ -117,6 +117,30 @@ Once per site:
 | `sensor.<site>_outdoor_temperature` | Outdoor conditions for the site's location |
 | `sensor.<site>_outdoor_humidity` | Outdoor conditions for the site's location |
 
+### Schedules
+
+Schedules created in the Comfort app are readable, and the parts worth
+automating can be driven from Home Assistant.
+
+`sensor.<zone>_next_schedule_change` gives the timestamp of the next change,
+with the mode and setpoints it will apply in its attributes. Events carry
+weekdays and a time but no date, so the next occurrence is worked out in
+each zone's own timezone.
+
+Four services:
+
+| Service | What it does |
+|---|---|
+| `kumo_cloud.get_schedules` | Returns every zone's schedule as response data, with the next change per zone |
+| `kumo_cloud.set_season` | Makes a schedule season the active one |
+| `kumo_cloud.set_schedules_enabled` | Turns scheduling on or off for the whole site |
+| `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
+
+```yaml
+action: kumo_cloud.get_schedules
+response_variable: schedules
+```
+
 ### Controlling the whole house
 
 Home Assistant has no climate group helper, so a site-wide climate entity is
@@ -175,10 +199,15 @@ your account details. Manage that in the Comfort app or on the web.
 of an indoor unit are out for the same reason. Set your equipment up in the
 Comfort app; use this to run it.
 
-**Schedules.** Not for want of trying. The schedule and comfort preset
-endpoints reject this client with `426 invalidAppVersion` no matter what is
-sent, including the exact header set the Comfort app itself uses. Use Home
-Assistant's own automations, which are better anyway.
+**Creating and editing individual schedule events.** Reading schedules works
+(see below), and so does switching season, enabling or disabling scheduling
+and clearing events. Building a week of events is not exposed, because the
+payload is a whole per-zone timetable and expressing that through a service
+schema would be worse than editing it in the Comfort app. Home Assistant's
+own automations are a better tool for that anyway.
+
+**Comfort presets.** These still return `426` on every API version tried.
+Unlike schedules, no working route has been found for them yet.
 
 ## Behavior notes
 

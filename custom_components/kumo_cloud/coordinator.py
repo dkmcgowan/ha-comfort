@@ -56,6 +56,8 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         self.site: dict[str, Any] = {}
         self.site_weather: dict[str, Any] = {}
         self.active_alerts: list[dict[str, Any]] = []
+        self.seasons: list[dict[str, Any]] = []
+        self.zone_schedules: dict[str, dict[str, Any]] = {}
 
         # Counts refreshes so the slow tier can run every Nth one.
         self._refresh_count = 0
@@ -186,12 +188,48 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             "site": self.site,
             "site_weather": self.site_weather,
             "active_alerts": self.active_alerts,
+            "seasons": self.seasons,
+            "zone_schedules": self.zone_schedules,
         }
 
     @property
     def site_name(self) -> str:
         """Return the site's name, falling back to something printable."""
         return self.site.get("name") or "Kumo Cloud site"
+
+    async def _async_update_schedules(self) -> None:
+        """Load the running season's schedules, keyed by zone.
+
+        Only the running season is fetched. An account can hold several, but
+        the others are not driving anything, and each one is another request.
+        """
+        season = self.active_season
+        if season is None:
+            self.zone_schedules = {}
+            return
+
+        try:
+            schedules = await self.api.get_season_schedules(season["id"])
+        except (KumoCloudConnectionError, aiohttp.ClientError, OSError, TimeoutError) as err:
+            _LOGGER.debug("Failed to fetch schedules: %s", err)
+            return
+
+        self.zone_schedules = {
+            entry["zone"]["id"]: entry
+            for entry in schedules
+            if isinstance(entry.get("zone"), dict) and entry["zone"].get("id")
+        }
+
+    @property
+    def active_season(self) -> dict[str, Any] | None:
+        """Return the running season, falling back to the default one."""
+        for season in self.seasons:
+            if season.get("isRunning"):
+                return season
+        for season in self.seasons:
+            if season.get("isDefault"):
+                return season
+        return self.seasons[0] if self.seasons else None
 
     async def _async_update_site_data(self) -> None:
         """Fetch the two account-wide extras.
@@ -201,12 +239,19 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         alert list are nice to have, and neither is worth failing a refresh
         that otherwise succeeded.
         """
-        site, weather, alerts = await asyncio.gather(
+        site, weather, alerts, seasons = await asyncio.gather(
             self.api.get_site(self.site_id),
             self.api.get_site_weather(self.site_id),
             self.api.get_active_notifications(),
+            self.api.get_schedule_seasons(self.site_id),
             return_exceptions=True,
         )
+
+        if isinstance(seasons, list):
+            self.seasons = seasons
+            await self._async_update_schedules()
+        elif isinstance(seasons, Exception):
+            _LOGGER.debug("Failed to fetch schedule seasons: %s", seasons)
 
         if isinstance(site, dict):
             self.site = site
@@ -541,6 +586,16 @@ class KumoCloudDevice:
     def has_active_schedule(self) -> bool:
         """Return whether a schedule is running on this zone."""
         return bool(self.zone_data.get("hasActiveSchedule"))
+
+    @property
+    def schedule(self) -> dict[str, Any]:
+        """Get this zone's schedule within the running season."""
+        return self.coordinator.zone_schedules.get(self.zone_id) or {}
+
+    @property
+    def schedule_events(self) -> list[dict[str, Any]]:
+        """Get this zone's scheduled events."""
+        return self.schedule.get("events") or []
 
     @property
     def connection_history(self) -> list[dict[str, Any]]:

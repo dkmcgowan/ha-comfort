@@ -4,3 +4,8 @@ ruff>=0.6
 # Mirrors the integration's own requirements in manifest.json. Home Assistant
 # installs those at runtime; CI has to be told.
 python-socketio[asyncio_client]>=5.11,<6
+
+# Windows ships no IANA timezone database, so `zoneinfo` cannot resolve the
+# zone names the API returns. Home Assistant's own platforms have one; this
+# is only so the schedule tests run locally too.
+tzdata

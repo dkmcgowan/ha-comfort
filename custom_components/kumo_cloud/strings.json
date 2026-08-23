@@ -48,6 +48,75 @@
       },
       "no_setpoint_in_mode": {
         "message": "{name} has no target temperature in {mode} mode."
+      },
+      "no_loaded_entry": {
+        "message": "No Mitsubishi Comfort account is set up."
+      },
+      "entry_id_required": {
+        "message": "More than one account is set up, so this service needs config_entry_id to know which one you mean."
+      },
+      "unknown_entry": {
+        "message": "No loaded Mitsubishi Comfort account with id {entry_id}."
+      },
+      "unknown_season": {
+        "message": "No schedule season called {season}. Known seasons: {known}."
+      },
+      "no_season": {
+        "message": "This account has no schedule seasons."
+      }
+    },
+    "services": {
+      "get_schedules": {
+        "name": "Get schedules",
+        "description": "Returns the running season's schedule for every zone, with the next change worked out in each zone's own timezone.",
+        "fields": {
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to read. Only needed when more than one is set up."
+          }
+        }
+      },
+      "set_season": {
+        "name": "Set schedule season",
+        "description": "Makes a schedule season the active one.",
+        "fields": {
+          "season": {
+            "name": "Season",
+            "description": "The season's name, as shown in the Comfort app."
+          },
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to change. Only needed when more than one is set up."
+          }
+        }
+      },
+      "set_schedules_enabled": {
+        "name": "Enable or disable schedules",
+        "description": "Turns scheduling on or off for the whole site.",
+        "fields": {
+          "enabled": {
+            "name": "Enabled",
+            "description": "Whether schedules should run."
+          },
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to change. Only needed when more than one is set up."
+          }
+        }
+      },
+      "clear_season_events": {
+        "name": "Clear season events",
+        "description": "Deletes every scheduled event in a season, leaving the season itself. This cannot be undone.",
+        "fields": {
+          "season": {
+            "name": "Season",
+            "description": "The season to clear. Defaults to the running one."
+          },
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to change. Only needed when more than one is set up."
+          }
+        }
       }
     }
   }

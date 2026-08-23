@@ -12,6 +12,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_SITE_ID
 from .coordinator import KumoCloudConfigEntry, KumoCloudDataUpdateCoordinator
+from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KumoCloudConfigEntry) ->
     entry.async_on_unload(coordinator.async_stop_push)
 
     entry.runtime_data = coordinator
+
+    async_register_services(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

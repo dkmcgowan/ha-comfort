@@ -1,0 +1,46 @@
+get_schedules:
+  fields:
+    config_entry_id:
+      required: false
+      example: 01JABCDEF0123456789
+      selector:
+        config_entry:
+          integration: kumo_cloud
+
+set_season:
+  fields:
+    season:
+      required: true
+      example: Default
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: kumo_cloud
+
+set_schedules_enabled:
+  fields:
+    enabled:
+      required: true
+      selector:
+        boolean:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: kumo_cloud
+
+clear_season_events:
+  fields:
+    season:
+      required: false
+      example: Default
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: kumo_cloud

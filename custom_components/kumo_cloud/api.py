@@ -16,6 +16,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import (
     API_APP_VERSION,
     API_BASE_URL,
+    API_V4,
     API_VERSION,
     TOKEN_EXPIRY_MARGIN,
     TOKEN_REFRESH_INTERVAL,
@@ -144,12 +145,22 @@ class KumoCloudAPI:
             await self.refresh_access_token()
 
     async def _request(
-        self, method: str, endpoint: str, data: dict[str, Any] | None = None
+        self,
+        method: str,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+        api_version: str = API_VERSION,
     ) -> dict[str, Any]:
-        """Make an authenticated request to the API."""
+        """Make an authenticated request to the API.
+
+        Almost everything is on v3. Nine endpoints, all the schedule season
+        routes plus the site hold, are on v4, and calling those on v3 returns
+        `426 invalidAppVersion`, which is a thoroughly misleading way for a
+        router to say "no such route here". See `API_V4` in const.py.
+        """
         await self._ensure_token_valid()
 
-        url = f"{self.base_url}/{API_VERSION}{endpoint}"
+        url = f"{self.base_url}/{api_version}{endpoint}"
         headers = {
             "x-app-version": API_APP_VERSION,
             "Authorization": f"Bearer {self.access_token}",
@@ -162,18 +173,20 @@ class KumoCloudAPI:
         for attempt in range(max_retries + 1):
             try:
                 async with asyncio.timeout(30):
-                    if method.upper() == "GET":
+                    verb = method.upper()
+                    if verb == "GET":
                         async with self.session.get(url, headers=headers) as response:
                             response.raise_for_status()
                             return await response.json()
-                    elif method.upper() == "POST":
-                        async with self.session.post(
-                            url, headers=headers, json=data
+                    if verb in ("POST", "PUT", "DELETE"):
+                        async with self.session.request(
+                            verb, url, headers=headers, json=data
                         ) as response:
                             response.raise_for_status()
                             if response.content_type == "application/json":
                                 return await response.json()
                             return {}
+                    raise ValueError(f"Unsupported method: {method}")
 
             except TimeoutError as err:
                 if attempt < max_retries:
@@ -317,6 +330,80 @@ class KumoCloudAPI:
         so the method and the empty body are inferred rather than observed.
         """
         return await self._request("POST", f"/zones/{zone_id}/reset-filter", {})
+
+    # ---- Schedules, all on API v4 --------------------------------------
+
+    async def get_schedule_seasons(self, site_id: str) -> list[dict[str, Any]]:
+        """List the site's schedule seasons.
+
+        Endpoint: GET /v4/sites/{siteId}/schedule-seasons
+        Each season is `{id, name, isRunning, isDefault, hasSchedules,
+        createdAt, updatedAt}`. An account always has a "Default" season.
+        """
+        result = await self._request(
+            "GET", f"/sites/{site_id}/schedule-seasons", api_version=API_V4
+        )
+        return result if isinstance(result, list) else []
+
+    async def get_season_schedules(self, season_id: str) -> list[dict[str, Any]]:
+        """Get every zone's schedule within a season.
+
+        Endpoint: GET /v4/schedule-seasons/{seasonId}/schedules
+        Returns one entry per zone, `{id, zone: {id, name}, events: [...]}`,
+        where each event is `{id, days, startTime, operationMode, fanSpeed,
+        airDirection, spCool, spHeat}`. `days` are two letter codes and
+        `startTime` is "HHMM". A zone with no events has an empty list.
+        """
+        result = await self._request(
+            "GET", f"/schedule-seasons/{season_id}/schedules", api_version=API_V4
+        )
+        return result if isinstance(result, list) else []
+
+    async def set_default_season(self, season_id: str) -> dict[str, Any]:
+        """Make a season the active one.
+
+        Endpoint: POST /v4/schedule-seasons/{seasonId}/set-default
+        """
+        return await self._request(
+            "POST", f"/schedule-seasons/{season_id}/set-default", {}, api_version=API_V4
+        )
+
+    async def set_season_status(self, season_id: str, running: bool) -> dict[str, Any]:
+        """Start or stop a season.
+
+        Endpoint: POST /v4/schedule-seasons/{seasonId}/status
+
+        **Unverified.** The body shape is inferred from the field name the
+        season record uses; only the route and method are read from the app.
+        """
+        return await self._request(
+            "POST",
+            f"/schedule-seasons/{season_id}/status",
+            {"isRunning": running},
+            api_version=API_V4,
+        )
+
+    async def clear_season_events(self, season_id: str) -> dict[str, Any]:
+        """Delete every event in a season, leaving the season itself.
+
+        Endpoint: DELETE /v4/schedule-seasons/{seasonId}/clean
+        """
+        return await self._request(
+            "DELETE", f"/schedule-seasons/{season_id}/clean", api_version=API_V4
+        )
+
+    async def set_site_schedules_enabled(self, site_id: str, enabled: bool) -> dict[str, Any]:
+        """Turn scheduling on or off for the whole site.
+
+        Endpoint: POST /v3/sites/{siteId}/toggle-schedules
+        This one is on v3, unlike the season routes.
+
+        **Unverified.** The body is inferred from the site record's
+        `schedulesEnabled` field.
+        """
+        return await self._request(
+            "POST", f"/sites/{site_id}/toggle-schedules", {"schedulesEnabled": enabled}
+        )
 
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.

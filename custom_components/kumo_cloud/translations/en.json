@@ -1,60 +1,129 @@
 {
-    "config": {
-      "step": {
-        "user": {
-          "title": "Mitsubishi Comfort Setup",
-          "description": "Enter your Kumo Cloud credentials to connect your Mitsubishi climate control system.",
-          "data": {
-            "username": "Username (Email)",
-            "password": "Password"
-          }
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mitsubishi Comfort Setup",
+        "description": "Enter your Kumo Cloud credentials to connect your Mitsubishi climate control system.",
+        "data": {
+          "username": "Username (Email)",
+          "password": "Password"
+        }
+      },
+      "site": {
+        "title": "Select Site",
+        "description": "Select the site you want to control. You have {num_sites} available sites.",
+        "data": {
+          "site_id": "Site"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Your Kumo Cloud credentials need to be updated. Please enter your current password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid credentials. Please check your username and password.",
+      "cannot_connect": "Unable to connect to Kumo Cloud. Please check your internet connection.",
+      "unknown": "An unexpected error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mitsubishi Comfort Options",
+        "description": "Configure options for your Mitsubishi Comfort integration."
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "kumo_cloud": {
+        "name": "Climate"
+      }
+    }
+  },
+  "exceptions": {
+    "no_setpoint_in_dry": {
+      "message": "{name} does not accept a target temperature in dry mode."
+    },
+    "no_setpoint_in_mode": {
+      "message": "{name} has no target temperature in {mode} mode."
+    },
+    "no_loaded_entry": {
+      "message": "No Mitsubishi Comfort account is set up."
+    },
+    "entry_id_required": {
+      "message": "More than one account is set up, so this service needs config_entry_id to know which one you mean."
+    },
+    "unknown_entry": {
+      "message": "No loaded Mitsubishi Comfort account with id {entry_id}."
+    },
+    "unknown_season": {
+      "message": "No schedule season called {season}. Known seasons: {known}."
+    },
+    "no_season": {
+      "message": "This account has no schedule seasons."
+    }
+  },
+  "services": {
+    "get_schedules": {
+      "name": "Get schedules",
+      "description": "Returns the running season's schedule for every zone, with the next change worked out in each zone's own timezone.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Which account to read. Only needed when more than one is set up."
+        }
+      }
+    },
+    "set_season": {
+      "name": "Set schedule season",
+      "description": "Makes a schedule season the active one.",
+      "fields": {
+        "season": {
+          "name": "Season",
+          "description": "The season's name, as shown in the Comfort app."
         },
-        "site": {
-          "title": "Select Site",
-          "description": "Select the site you want to control. You have {num_sites} available sites.",
-          "data": {
-            "site_id": "Site"
-          }
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Which account to change. Only needed when more than one is set up."
+        }
+      }
+    },
+    "set_schedules_enabled": {
+      "name": "Enable or disable schedules",
+      "description": "Turns scheduling on or off for the whole site.",
+      "fields": {
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether schedules should run."
         },
-        "reauth_confirm": {
-          "title": "Re-authenticate",
-          "description": "Your Kumo Cloud credentials need to be updated. Please enter your current password.",
-          "data": {
-            "password": "Password"
-          }
-        }
-      },
-      "error": {
-        "invalid_auth": "Invalid credentials. Please check your username and password.",
-        "cannot_connect": "Unable to connect to Kumo Cloud. Please check your internet connection.",
-        "unknown": "An unexpected error occurred. Please try again."
-      },
-      "abort": {
-        "already_configured": "This account is already configured.",
-        "reauth_successful": "Re-authentication successful."
-      }
-    },
-    "options": {
-      "step": {
-        "init": {
-          "title": "Mitsubishi Comfort Options",
-          "description": "Configure options for your Mitsubishi Comfort integration."
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Which account to change. Only needed when more than one is set up."
         }
       }
     },
-    "entity": {
-      "climate": {
-        "kumo_cloud": {
-          "name": "Climate"
+    "clear_season_events": {
+      "name": "Clear season events",
+      "description": "Deletes every scheduled event in a season, leaving the season itself. This cannot be undone.",
+      "fields": {
+        "season": {
+          "name": "Season",
+          "description": "The season to clear. Defaults to the running one."
+        },
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Which account to change. Only needed when more than one is set up."
         }
-      }
-    },
-    "exceptions": {
-      "no_setpoint_in_dry": {
-        "message": "{name} does not accept a target temperature in dry mode."
-      },
-      "no_setpoint_in_mode": {
-        "message": "{name} has no target temperature in {mode} mode."
       }
     }
   }
+}
