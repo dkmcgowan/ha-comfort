@@ -30,6 +30,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # No brand assets yet. Drop this once custom_components/kumo_cloud/brand
-          # carries icon.png and logo.png.
-          ignore: brands
