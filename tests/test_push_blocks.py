@@ -81,7 +81,20 @@ PROHIBITS = {
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Run one coroutine without disturbing the session's event loop.
+
+    Not `asyncio.run`. That sets the current event loop to None on the way
+    out, and under Home Assistant's loop policy the next
+    `asyncio.get_event_loop()` then raises instead of making a new one. The
+    autouse fixtures in `pytest_homeassistant_custom_component` call exactly
+    that, so every test after this file errored in CI. It goes unnoticed
+    locally because that package cannot be installed on Windows.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # ---- Asking ------------------------------------------------------------
