@@ -96,6 +96,48 @@
           }
         }
       },
+      "set_hold": {
+        "name": "Set hold",
+        "description": "Pins settings on one or more zones until the hold is cleared or expires. This is what the Comfort app calls Away mode. Leave the zone empty to hold every zone.",
+        "fields": {
+          "enabled": {
+            "name": "Enabled",
+            "description": "Turn the hold on or off."
+          },
+          "zone": {
+            "name": "Zone",
+            "description": "Which zone to hold. Leave empty for all of them."
+          },
+          "hold_type": {
+            "name": "Hold type",
+            "description": "until_next_event releases at the next scheduled change; permanent stays until you clear it."
+          },
+          "operation_mode": {
+            "name": "Operation mode",
+            "description": "Mode to hold. Defaults to what the zone is doing now."
+          },
+          "cool_setpoint": {
+            "name": "Cool setpoint",
+            "description": "In Celsius. Defaults to the zone's current value."
+          },
+          "heat_setpoint": {
+            "name": "Heat setpoint",
+            "description": "In Celsius. Defaults to the zone's current value."
+          },
+          "fan_speed": {
+            "name": "Fan speed",
+            "description": "Raw API fan speed. Defaults to the zone's current value."
+          },
+          "air_direction": {
+            "name": "Air direction",
+            "description": "Raw API vane position. Defaults to the zone's current value."
+          },
+          "config_entry_id": {
+            "name": "Account",
+            "description": "Which account to change. Only needed when more than one is set up."
+          }
+        }
+      },
       "set_schedule": {
         "name": "Set a zone's schedule",
         "description": "Replaces one zone's scheduled events. Whatever you pass becomes the whole timetable for that zone, and an empty list clears it.",

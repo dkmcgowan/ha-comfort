@@ -45,6 +45,59 @@ clear_season_events:
         config_entry:
           integration: kumo_cloud
 
+set_hold:
+  fields:
+    enabled:
+      required: true
+      selector:
+        boolean:
+    zone:
+      required: false
+      example: Den
+      selector:
+        text:
+    hold_type:
+      required: false
+      selector:
+        select:
+          options:
+            - until_next_event
+            - permanent
+    operation_mode:
+      required: false
+      selector:
+        select:
+          options: [cool, heat, dry, vent, auto, off]
+    cool_setpoint:
+      required: false
+      selector:
+        number:
+          min: 10
+          max: 32
+          step: 0.5
+          unit_of_measurement: "°C"
+    heat_setpoint:
+      required: false
+      selector:
+        number:
+          min: 10
+          max: 32
+          step: 0.5
+          unit_of_measurement: "°C"
+    fan_speed:
+      required: false
+      selector:
+        text:
+    air_direction:
+      required: false
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: kumo_cloud
+
 set_schedule:
   fields:
     zone:

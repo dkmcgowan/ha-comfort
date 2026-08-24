@@ -17,5 +17,5 @@
     "loggers": ["kumo_cloud"],
     "quality_scale": "bronze",
     "requirements": ["python-socketio[asyncio_client]>=5.11,<6"],
-    "version": "1.9.2"
+    "version": "1.10.0"
 }

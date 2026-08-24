@@ -42,6 +42,9 @@ SERVICE_SET_SEASON = "set_season"
 SERVICE_SET_SCHEDULES_ENABLED = "set_schedules_enabled"
 SERVICE_CLEAR_SEASON_EVENTS = "clear_season_events"
 SERVICE_SET_SCHEDULE = "set_schedule"
+SERVICE_SET_HOLD = "set_hold"
+ATTR_HOLD_TYPE = "hold_type"
+HOLD_TYPES = ["until_next_event", "permanent"]
 
 ATTR_ENTRY_ID = "config_entry_id"
 ATTR_SEASON = "season"
@@ -84,6 +87,20 @@ SCHEMA_SET_SCHEDULE = vol.Schema(
         **_ENTRY,
         vol.Required(ATTR_ZONE): cv.string,
         vol.Required(ATTR_EVENTS): vol.All(cv.ensure_list, [EVENT_SCHEMA]),
+    }
+)
+SCHEMA_SET_HOLD = vol.Schema(
+    {
+        **_ENTRY,
+        vol.Required(ATTR_ENABLED): cv.boolean,
+        # No zone means every zone, which is how Away mode behaves.
+        vol.Optional(ATTR_ZONE): cv.string,
+        vol.Optional(ATTR_HOLD_TYPE): vol.In(HOLD_TYPES),
+        vol.Optional(ATTR_OPERATION_MODE): vol.In(MODES),
+        vol.Optional(ATTR_FAN_SPEED): cv.string,
+        vol.Optional(ATTR_AIR_DIRECTION): cv.string,
+        vol.Optional(ATTR_COOL_SETPOINT): vol.Coerce(float),
+        vol.Optional(ATTR_HEAT_SETPOINT): vol.Coerce(float),
     }
 )
 
@@ -271,6 +288,61 @@ async def _clear_season_events(call: ServiceCall) -> None:
     await coordinator.async_request_refresh()
 
 
+async def _set_hold(call: ServiceCall) -> None:
+    """Apply or clear a hold, which is what the app calls Away mode.
+
+    A hold pins settings on a zone until it expires. `until_next_event`
+    releases at the next scheduled change; `permanent` stays until cleared.
+    Turning it off restores normal operation.
+    """
+    coordinator = _coordinator(call.hass, call)
+
+    wanted = call.data.get(ATTR_ZONE)
+    if wanted:
+        targets = [
+            zone
+            for zone in coordinator.zones
+            if wanted in (zone["name"], zone["id"])
+        ]
+        if not targets:
+            known = ", ".join(zone["name"] for zone in coordinator.zones)
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_zone",
+                translation_placeholders={"zone": wanted, "known": known},
+            )
+    else:
+        targets = [zone for zone in coordinator.zones if zone.get("adapter")]
+
+    enabled = call.data[ATTR_ENABLED]
+    zones: list[dict[str, Any]] = []
+    for zone in targets:
+        adapter = zone.get("adapter") or {}
+        # Every settings field has to be present, so anything the caller did
+        # not give falls back to what the zone is doing now.
+        zones.append(
+            {
+                "id": zone["id"],
+                "enabled": enabled,
+                "type": "hold",
+                "holdType": call.data.get(ATTR_HOLD_TYPE, "until_next_event"),
+                "operationMode": call.data.get(
+                    ATTR_OPERATION_MODE, adapter.get("operationMode")
+                ),
+                "fanSpeed": call.data.get(ATTR_FAN_SPEED, adapter.get("fanSpeed")),
+                "airDirection": call.data.get(
+                    ATTR_AIR_DIRECTION, adapter.get("airDirection")
+                ),
+                "spCool": call.data.get(ATTR_COOL_SETPOINT, adapter.get("spCool")),
+                "spHeat": call.data.get(ATTR_HEAT_SETPOINT, adapter.get("spHeat")),
+            }
+        )
+
+    _LOGGER.debug("Setting hold enabled=%s on %d zones", enabled, len(zones))
+    await coordinator.api.set_hold(coordinator.site_id, zones, enabled)
+    await coordinator.async_request_refresh()
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Register the schedule services once for the integration."""
     if hass.services.has_service(DOMAIN, SERVICE_GET_SCHEDULES):
@@ -300,4 +372,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SCHEDULE, _set_schedule, schema=SCHEMA_SET_SCHEDULE
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_HOLD, _set_hold, schema=SCHEMA_SET_HOLD
     )

@@ -108,12 +108,14 @@ Per zone:
 | `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
 | `button.<zone>_reset_filter` | Clears the filter reminder |
 | `binary_sensor.<zone>_status_led` | Whether the WiFi adapter's status light is lit. Read only, see below |
+| `sensor.<zone>_temperature_offset` | The correction the adapter applies to its reported room temperature |
 
 Once per site:
 
 | Entity | Notes |
 |---|---|
 | `climate.<site>_all_zones` | One thermostat for the whole house, see below |
+| `switch.<site>_schedules` | Whether the schedule season is running |
 | `sensor.<site>_outdoor_temperature` | Outdoor conditions for the site's location |
 | `sensor.<site>_outdoor_humidity` | Outdoor conditions for the site's location |
 
@@ -136,6 +138,7 @@ Four services:
 | `kumo_cloud.set_schedules_enabled` | Turns scheduling on or off for the whole site |
 | `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
 | `kumo_cloud.set_schedule` | Replaces one zone's timetable. An empty event list clears it |
+| `kumo_cloud.set_hold` | Pins settings on a zone, or all of them. This is Away mode |
 
 ```yaml
 action: kumo_cloud.get_schedules
@@ -156,7 +159,43 @@ data:
 
 Setpoints are in Celsius, because that is what the API stores.
 
-### The adapter's status LED is read only
+### Away mode
+
+The Comfort app's Away mode is a hold: it pins chosen settings on your zones
+until you end it. `kumo_cloud.set_hold` does the same thing. Leave the zone
+out to hold everything, which is what Away does.
+
+```yaml
+action: kumo_cloud.set_hold
+data:
+  enabled: true
+  hold_type: permanent
+  operation_mode: cool
+  cool_setpoint: 27.0
+```
+
+Anything you leave out keeps the zone's current value. Set `enabled: false`
+to end it. `until_next_event` releases at the next scheduled change instead
+of holding indefinitely.
+
+For most Home Assistant setups an automation is a better tool than a hold,
+since it can react to presence, weather and everything else HA knows. The
+hold is here for parity with the app, and because it survives HA being down.
+
+### Read-only settings
+
+Some things the Comfort app can change are readable here but not writable.
+The cloud accepts the new value, returns success, and leaves it unchanged;
+the app sets them over a channel this integration does not use. They are
+sensors rather than controls, because a switch that does nothing is worse
+than no switch:
+
+- **The adapter's status LED**
+- **The temperature display offset**
+- **The per-unit minimum and maximum setpoint limits**
+
+All three update correctly in Home Assistant when you change them in the
+app.
 
 The cloud reports whether the light is on and will not let you change it. It
 accepts the field, returns 200, and does nothing: the value reads back

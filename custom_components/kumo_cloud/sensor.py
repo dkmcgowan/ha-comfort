@@ -99,6 +99,7 @@ async def async_setup_entry(
                 KumoCloudAlertSensor(device),
                 KumoCloudConnectionSensor(device),
                 KumoCloudNextScheduleSensor(device),
+                KumoCloudTempOffsetSensor(device),
             ]
             if adapter.get("hasSensor", False):
                 candidates += [
@@ -429,6 +430,38 @@ class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
         if status is None:
             return None
         return status.get("minSetPoint" if self._bound == "minimum" else "maxSetPoint")
+
+
+class KumoCloudTempOffsetSensor(KumoCloudEntity, SensorEntity):
+    """The correction the adapter applies to its reported room temperature.
+
+    Read only. The cloud accepts a new value through both the device patch
+    and the command endpoint, returns 200 for each, and leaves it unchanged,
+    the same as the status LED. Set it in the Comfort app; this reports it.
+
+    Worth knowing when a zone's temperature looks wrong: the room reading
+    already has this added, so a non-zero offset explains a gap between the
+    unit and a wireless sensor in the same room.
+    """
+
+    _attr_name = "Temperature offset"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:thermometer-plus"
+
+    def __init__(self, device: KumoCloudDevice) -> None:
+        """Initialize the sensor."""
+        super().__init__(device)
+        self._attr_unique_id = f"{device.device_serial}_temp_offset"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the configured offset."""
+        status = self.device.device_status_data
+        if status is None:
+            return None
+        return status.get("roomTempDisplayOffset")
 
 
 class KumoCloudRemoteLockoutSensor(KumoCloudEntity, SensorEntity):

@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.10.0] - 2026-08-24
+
+Filling the gaps found by walking the Comfort app screen by screen.
+
+### Added
+
+- **`kumo_cloud.set_hold`**, which is what the app calls Away mode. A hold
+  pins chosen settings on a zone, or on every zone, until it is cleared or
+  expires at the next scheduled change. Anything not given keeps the zone's
+  current value.
+
+  Working out the payload took some doing: the zone key is `id` rather than
+  `zoneId`, every settings field has to be present, and anything less returns
+  `400 {"zones": "Required"}` naming the array rather than the key actually
+  missing.
+- **`switch.<site>_schedules`**, a toggle for whether the schedule season is
+  running, so scheduling can be turned on and off without calling a service.
+- **`sensor.<zone>_temperature_offset`**, the correction the adapter applies
+  to its reported room temperature. Useful when a zone reads differently
+  from a wireless sensor in the same room, because the room reading already
+  has this added.
+
+### Documentation
+
+- The README now lists the settings that are readable but not writable, and
+  says why: the cloud accepts the value, returns success and ignores it. That
+  covers the status LED, the temperature offset, and the per-unit setpoint
+  limits. All three track correctly when changed in the app.
+- Away mode is documented, with the note that a Home Assistant automation is
+  usually the better tool, since it can react to presence and everything else
+  HA knows. The hold is there for parity and because it survives HA being
+  down.
+
+### Still not reachable
+
+- **Auto Dry.** With three zones on and one off, every REST document is
+  byte-identical and the socket carries nothing about it. Not exposed
+  anywhere this client can see.
+- **Comfort Settings**, which is what the app calls presets. Every endpoint
+  in that family returns `426` on every API version tried.
+
 ## [1.9.2] - 2026-08-24
 
 ### Fixed

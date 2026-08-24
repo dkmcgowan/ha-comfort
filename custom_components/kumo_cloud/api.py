@@ -426,6 +426,31 @@ class KumoCloudAPI:
             api_version=API_V4,
         )
 
+    async def set_hold(
+        self, site_id: str, zones: list[dict[str, Any]], enabled: bool
+    ) -> dict[str, Any]:
+        """Apply or clear a hold on one or more zones.
+
+        Endpoint: POST /v4/sites/{siteId}/hold
+        Body: `{"siteId", "enabled", "zones": [{...}]}` where each zone is
+        `{"id", "enabled", "type", "holdType", "operationMode", "fanSpeed",
+        "airDirection", "spCool", "spHeat"}`.
+
+        The zone key is **`id`**, not `zoneId`, and every settings field has
+        to be present. Anything less returns `400 {"zones": "Required"}`,
+        which names the array rather than the missing key inside it.
+
+        A hold is what the Comfort app calls Away mode: the app stores per
+        zone settings in `preferences.configuredAwaySettings` and applies
+        them through this same call.
+        """
+        return await self._request(
+            "POST",
+            f"/sites/{site_id}/hold",
+            {"siteId": site_id, "enabled": enabled, "zones": zones},
+            api_version=API_V4,
+        )
+
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.
 
