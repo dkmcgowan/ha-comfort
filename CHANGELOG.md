@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.9.2] - 2026-08-24
+
+### Fixed
+
+- **The climate card flicked back to the old value for about a second.**
+  Change a unit from dry to cool and the card showed cool, reverted to dry,
+  then settled on cool. Reported from a real install.
+
+  The integration holds a just-sent value in place while the cloud catches
+  up, which can take up to a minute. It was releasing that hold by comparing
+  the client's clock against the server's `updatedAt` and letting go as soon
+  as `updatedAt` was the newer of the two. That fails two ways: any clock
+  skew between Home Assistant and the cloud releases it immediately, and
+  `updatedAt` moves whenever the record changes for any reason, not only
+  when the command lands, so an unrelated telemetry update releases it early.
+  Either one lets the old value flash back.
+
+  The hold is now released when the server reports the value that was
+  actually asked for, which involves no clocks at all, with a 90 second
+  timeout so a command the equipment refused stops being displayed. Setpoints
+  compare with a tolerance, because floats do not round trip exactly.
+
+  The logic moved to `command_cache.py`, which imports nothing from Home
+  Assistant and has tests covering the reported case, per-device and
+  per-field isolation, the refusal timeout, and partial push payloads that
+  omit the field entirely.
+
 ## [1.9.1] - 2026-08-23
 
 ### Fixed

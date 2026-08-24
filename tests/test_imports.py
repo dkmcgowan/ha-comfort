@@ -25,6 +25,7 @@ MODULES = [
     "binary_sensor",
     "button",
     "climate",
+    "command_cache",
     "config_flow",
     "const",
     "coordinator",

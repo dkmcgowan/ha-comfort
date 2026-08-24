@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 import logging
 import time
 from typing import Any
@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
+from .command_cache import CommandCache
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -30,6 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 # of days, not minutes, and every one of them costs a request per unit on a
 # cloud API with no published rate limit. Fetch them every Nth refresh.
 SLOW_TIER_EVERY = 10
+
 
 class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Kumo Cloud data."""
@@ -67,19 +69,12 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         self.push: KumoCloudPush | None = None
         self._last_push: float | None = None
 
-        # Instance variable to store cached commands
-        self.cached_commands: dict[tuple[str, str], tuple[str, Any]] = {}
+        # Values asked for but not yet echoed back by the cloud.
+        self.cached_commands = CommandCache()
 
     def _process_pending_commands(self, device_serial: str, device_detail: dict[str, Any]) -> None:
-        """Process cached commands and cull outdated commands for a device."""
-        # Check if the device already exists and the updatedAt matches
-        if device_serial in self.devices and "updatedAt" in device_detail:
-            self.cull_cached_commands(device_serial, device_detail.get("updatedAt"))
-
-        # Reapply cached commands to the device details
-        for (cached_device_serial, command), (_, command_value) in self.cached_commands.items():
-            if cached_device_serial == device_serial:
-                device_detail[command] = command_value
+        """Overlay any values this device is still waiting on."""
+        self.cached_commands.apply(device_serial, device_detail, time.monotonic())
 
     # ---- Push channel --------------------------------------------------
 
@@ -450,47 +445,10 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Failed to refresh device %s: %s", device_serial, err)
 
     def cache_command(self, device_serial: str, command: str, value: Any) -> None:
-        """Cache a command with its value and timestamp."""
-        current_time = datetime.now(UTC).isoformat()
-        self.cached_commands[(device_serial, command)] = (current_time, value)
-        _LOGGER.debug("Cached command in device data: %s at %s", command, current_time)
+        """Hold a value we just asked for until the cloud reports it back."""
+        self.cached_commands.remember(device_serial, command, value, time.monotonic())
+        _LOGGER.debug("Holding %s=%s for %s until the cloud agrees", command, value, device_serial)
 
-    def cull_cached_commands(self, device_serial: str, date: str) -> None:
-        """Drop this device's cached commands stamped at or before the given date."""
-        to_remove = []
-        input_date = datetime.fromisoformat(date)
-
-        for key, value in self.cached_commands.items():
-            cached_device_serial, _command = key
-            cached_date, _ = value
-            cached_date_obj = datetime.fromisoformat(cached_date)
-
-            # Check if the device_serial matches and the input date is on or after the cached date
-            if cached_device_serial == device_serial and input_date >= cached_date_obj:
-                to_remove.append(key)
-            else:
-                # Log details if the condition fails
-                _LOGGER.debug(
-                    "Skipping cached command: cached_device_serial=%s, device_serial=%s, "
-                    "input_date=%s, cached_date_obj=%s, date=%s, cached_date=%s",
-                    cached_device_serial,
-                    device_serial,
-                    input_date,
-                    cached_date_obj,
-                    date,
-                    cached_date,
-                )
-
-        # Remove the matching keys
-        for key in to_remove:
-            del self.cached_commands[key]
-
-        # Log the culled and remaining commands
-        remaining_count = len(self.cached_commands)
-        _LOGGER.debug(
-            "Culled %d cached commands for device %s on or after %s. Remaining cached commands: %d",
-            len(to_remove), device_serial, date, remaining_count
-        )
 
 class KumoCloudDevice:
     """Representation of a Kumo Cloud device."""
