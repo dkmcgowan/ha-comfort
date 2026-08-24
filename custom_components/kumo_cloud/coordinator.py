@@ -101,6 +101,24 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             await self.push.async_stop()
             self.push = None
 
+    async def async_refresh_prohibits(self, device_serial: str) -> None:
+        """Re-read one device's lockout state straight away.
+
+        Prohibits are on the slow tier, so a normal refresh after a write
+        would not pick the change up for several minutes and the switch
+        would appear to snap back.
+        """
+        try:
+            prohibits = await self.api.get_device_prohibits(device_serial)
+        except (KumoCloudConnectionError, aiohttp.ClientError, OSError, TimeoutError) as err:
+            _LOGGER.debug("Could not re-read prohibits for %s: %s", device_serial, err)
+            return
+
+        if prohibits:
+            self.device_prohibits[device_serial] = prohibits
+            self.data = self._snapshot()
+            self.async_update_listeners()
+
     def _serials(self) -> list[str]:
         """Return every adapter serial on the site."""
         return [

@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.11.0] - 2026-08-24
+
+The status LED and the wall remote lockouts become real controls. Both were
+previously read only, on the mistaken conclusion that they could not be
+written at all.
+
+### Added
+
+- **`switch.<zone>_status_led`**, which actually turns the adapter's light
+  on and off.
+- **`switch.<zone>_lock_remote_power`, `_lock_remote_mode` and
+  `_lock_remote_setpoint`**, which lock the wall remote out of each control.
+  They report the unit's `effective` state, and expose where a lock came
+  from in their attributes, because an account-wide lock cannot be cleared
+  from here.
+
+### Removed
+
+- `binary_sensor.<zone>_status_led`, replaced by the switch above.
+
+### The endpoint
+
+Both go through `POST /v3/devices/{serial}/relay-command`, which is a
+separate path from `/devices/send-command` and is the one that carries
+adapter settings rather than climate commands:
+
+    {"serial": ..., "adapter": {"status": {"ledDisabled": bool}}}
+    {"serial": ..., "indoorUnit": {"prohibits": {"local": {power, mode, setpoint}}}}
+
+Everything previously tried sent the right fields to the wrong endpoint,
+which returns 200 and silently discards them. Found by disassembling the
+app's Hermes bytecode rather than decompiling it: `useZoneDetails` exports
+`updateLedLights` and `updateProhibits`, neither of which calls an API
+directly. They write into a ref that a 1.5 second debounced sender flushes
+through `useRelayCommandQuery`. Both are verified by changing the real value
+and reading it back.
+
+Prohibits are re-read immediately after a write rather than waiting for the
+slow tier, so the switch does not appear to snap back.
+
+### Still not reachable
+
+**Auto Dry.** The same endpoint accepts `adapter.autodry` and echoes the
+settings back with a 200, but the Comfort app still shows the feature off
+afterwards, so the write is discarded. The state is not readable either.
+Both halves would have to work before this is worth shipping.
+
 ## [1.10.1] - 2026-08-24
 
 ### Fixed

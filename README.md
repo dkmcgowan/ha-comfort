@@ -102,13 +102,15 @@ Per zone:
 | `binary_sensor.<zone>_fault` | Set when the unit reports an error |
 | `binary_sensor.<zone>_cloud_connection` | Whether the adapter is reaching the cloud |
 | `binary_sensor.<zone>_firmware_update` | Set when the adapter has an update waiting |
-
 | `binary_sensor.<zone>_hold` | A hold is overriding this zone, with its expiry and overrides in attributes |
 | `binary_sensor.<zone>_schedule_active` | A schedule is running on this zone |
 | `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
-| `button.<zone>_reset_filter` | Clears the filter reminder |
-| `binary_sensor.<zone>_status_led` | Whether the WiFi adapter's status light is lit. Read only, see below |
 | `sensor.<zone>_temperature_offset` | The correction the adapter applies to its reported room temperature |
+| `button.<zone>_reset_filter` | Clears the filter reminder |
+| `switch.<zone>_status_led` | The WiFi adapter's status light |
+| `switch.<zone>_lock_remote_power` | Locks the wall remote out of power |
+| `switch.<zone>_lock_remote_mode` | Locks the wall remote out of mode |
+| `switch.<zone>_lock_remote_setpoint` | Locks the wall remote out of setpoint |
 
 Once per site:
 
@@ -238,35 +240,39 @@ since it can react to presence, weather and everything else HA knows. The
 hold is here for parity with the app, and because it keeps working if Home
 Assistant is down.
 
+### Adapter settings
+
+The status LED and the wall remote lockouts are real controls, not just
+readings. They go through a different endpoint from climate commands, which
+is why they took a while to find:
+
+- `switch.<zone>_status_led` turns the adapter's light on and off
+- `switch.<zone>_lock_remote_power`, `_lock_remote_mode` and
+  `_lock_remote_setpoint` lock the wall remote out of each control
+
+The lockout switches report the unit's `effective` state, which is what it
+is actually enforcing. A lock can also be applied account-wide, and those
+show in the attributes but cannot be cleared from here.
+
 ### Settings you can see but not change
 
-Three things the Comfort app can change are readable here and not writable:
+Two remain read only:
 
-- **The WiFi adapter's status LED**, `binary_sensor.<zone>_status_led`
 - **The temperature display offset**, `sensor.<zone>_temperature_offset`
 - **The per-unit setpoint limits**, `sensor.<zone>_minimum_setpoint_limit`
   and `_maximum_setpoint_limit`
 
-To be plain about why: **nobody has worked out how to set them.** The cloud
-accepts the new value through both the device update and the command
-endpoint, returns a success code for each, and then leaves the value exactly
-as it was. Every payload shape the app itself constructs has been tried. The
-app changes them over some channel this integration has not identified.
+The cloud accepts a new value for these, returns success, and leaves them
+alone. Set them in the Comfort app; Home Assistant reflects the change.
 
-Reading them works perfectly. Change the LED in the app and Home Assistant
-reflects it within seconds. So they are sensors rather than controls,
-because a switch that silently does nothing is worse than no switch at all.
+### Auto Dry and Comfort Settings
 
-If you know how these are written, an issue would be very welcome.
-
-### Auto Dry and Comfort Settings are missing for the same reason
-
-**Auto Dry**, the feature that runs dry mode to hold a target humidity
-within a temperature range, is not exposed here. It is not that it was
-skipped: the state is invisible. On an account with Auto Dry enabled on
-three zones and off on a fourth, every document the API will return is
-byte-for-byte identical between them, `/devices/{serial}/auto-dry` returns
-`null` for all four, and the push channel carries nothing about it.
+**Auto Dry**, which runs dry mode to hold a target humidity within a
+temperature range, is not exposed. The write is accepted and discarded: the
+adapter endpoint returns 200 and echoes the settings back, and the app still
+shows the feature off afterwards. The state is not readable either, so even
+a write-only control could not tell you whether it had worked. Both halves
+would have to be solved before this is worth shipping.
 
 **Comfort Settings**, which the app also calls presets, returns
 `426 invalidAppVersion` on every endpoint in the family and on every API

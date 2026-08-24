@@ -451,6 +451,47 @@ class KumoCloudAPI:
             api_version=API_V4,
         )
 
+    async def relay_command(self, device_serial: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Relay an adapter setting to the indoor unit.
+
+        Endpoint: POST /v3/devices/{deviceSerial}/relay-command
+
+        This is a different path from `/devices/send-command`, and it is the
+        one that carries adapter settings rather than climate commands. The
+        Comfort app batches these into a ref and flushes it through here on a
+        1.5 second debounce.
+
+        The body is the setting nested exactly as the app nests it, plus the
+        serial. Sending the same fields to `/devices/{serial}` or through
+        `send-command` returns 200 and changes nothing, which is a long and
+        confusing way to discover you have the wrong endpoint.
+        """
+        return await self._request(
+            "POST",
+            f"/devices/{device_serial}/relay-command",
+            {"serial": device_serial, **payload},
+        )
+
+    async def set_status_led(self, device_serial: str, disabled: bool) -> dict[str, Any]:
+        """Turn the adapter's status LED off or on.
+
+        Verified: the value changes and reads back from `/devices/{serial}`.
+        """
+        return await self.relay_command(
+            device_serial, {"adapter": {"status": {"ledDisabled": disabled}}}
+        )
+
+    async def set_prohibits(self, device_serial: str, local: dict[str, bool]) -> dict[str, Any]:
+        """Lock the wall remote out of power, mode or setpoint.
+
+        `local` is `{"power": bool, "mode": bool, "setpoint": bool}`, and all
+        three keys have to be present. Verified: the change shows up in the
+        `effective` block of `/devices/{serial}/prohibits`.
+        """
+        return await self.relay_command(
+            device_serial, {"indoorUnit": {"prohibits": {"local": local}}}
+        )
+
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.
 
