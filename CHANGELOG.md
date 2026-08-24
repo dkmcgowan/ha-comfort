@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.12.0] - 2026-08-24
+
+Settings can now be read straight off an adapter over the push channel,
+rather than only from REST. Wall remote lockouts use it, so a lock changed
+at the unit appears in seconds instead of on the slow poll.
+
+This also closes out Auto Dry, which is what sent us looking for the
+mechanism in the first place. It is not shipping, and now for a definite
+reason rather than an unexplained one.
+
+### Added
+
+- **Adapter block reads over the push channel.** The app asks a unit to
+  report part of itself with `force_adapter_request` and handles the reply
+  on a matching `<block>_update` event. Lockout state is read this way on
+  every refresh, throttled to one request per unit per minute as the app
+  does, and immediately after a write.
+
+### Changed
+
+- Lockout switches no longer wait for the slow REST tier to notice a change
+  made at the wall remote.
+
+### Auto Dry: closed
+
+The cloud does not hold an Auto Dry value, so there is nothing to build a
+control on.
+
+The app does not read `/devices/{serial}/auto-dry` either; it asks the
+adapter over the socket and renders the reply. Doing exactly that returns an
+empty block for every unit, including immediately after a write the cloud
+answers 200 to. The same request for `prohibits` returns full data in about
+a second, so the request is well formed and the mechanism works.
+
+The app still shows per zone Auto Dry state because it persists its whole
+query cache to the phone and the toggle writes an optimistic value into it.
+That is a record of what was pressed on that device, not anything the cloud
+knows, and it survives force closing the app. So the app and this
+integration can disagree about Auto Dry, and the app is not the authority.
+
+The write is accepted and echoed back, but with no way to read the value
+there is no way to confirm a unit ever applied it.
+
+### Answers are not attributable in bulk
+
+Worth recording for anyone extending this. The `<block>_update` replies
+carry no device serial, even though the app's own handlers read one off the
+payload. Matching replies to requests in the order sent looks correct and is
+not: asking four units at once, with a lockout set on the second, brought
+that lockout back in the third reply, which would have put one unit's state
+on another. Requests are serialized instead, so only one is ever
+outstanding. Both behaviors are covered by tests.
+
 ## [1.11.0] - 2026-08-24
 
 The status LED and the wall remote lockouts become real controls. Both were

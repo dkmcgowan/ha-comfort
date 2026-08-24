@@ -492,6 +492,13 @@ class KumoCloudAPI:
             device_serial, {"indoorUnit": {"prohibits": {"local": local}}}
         )
 
+    # Auto Dry would be written here, as
+    # `relay_command(serial, {"adapter": {"autodry": {"enable": bool}}})`.
+    # It is not, because the value cannot be read back from anywhere: REST
+    # returns null and the adapter's own report over the push channel comes
+    # back empty. See the Auto Dry section of the README, and
+    # `scripts/probe_force_adapter.py` to try it.
+
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.
 

@@ -23,6 +23,21 @@ from .const import (
 )
 from .push import KumoCloudPush, merge_device_update
 
+# Blocks asked for over the push channel on every refresh.
+#
+# Prohibits is here because the wall remote lockout can be changed at the
+# unit, and the REST read for it sits on the slow tier. Asking over the
+# socket keeps it current without adding a request per unit per minute.
+#
+# `autodry` is deliberately absent. The block exists, the request is
+# accepted, and the answer comes back carrying nothing but a timestamp, for
+# every unit, including immediately after a write the cloud returns 200 for.
+# The Comfort app shows per zone Auto Dry state from a cache it keeps on the
+# phone, not from anything the cloud reports, which is why the app and this
+# integration can disagree about it. Until the cloud reports the value there
+# is nothing to build a control on.
+ADAPTER_BLOCKS = ("prohibits",)
+
 type KumoCloudConfigEntry = ConfigEntry["KumoCloudDataUpdateCoordinator"]
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,17 +104,88 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             access_token_provider=lambda: self.api.access_token,
             token_refresher=self.api.refresh_access_token,
             on_device_update=self._handle_push_update,
+            on_block_update=self._handle_push_block,
         )
         if await push.async_start(self._serials()):
             self.push = push
             self._apply_push_interval()
             _LOGGER.debug("Push channel open, poll interval now %s", self.update_interval)
+            # Ask for the socket-only blocks now rather than waiting out a
+            # poll interval.
+            self._schedule_adapter_blocks()
 
     async def async_stop_push(self) -> None:
         """Close the live update channel."""
         if self.push is not None:
             await self.push.async_stop()
             self.push = None
+
+    @callback
+    def _handle_push_block(
+        self, device_serial: str, block: str, payload: dict[str, Any]
+    ) -> None:
+        """Store one block an adapter reported and tell the entities.
+
+        Blocks do not live on the device record, so this does not go through
+        `merge_device_update`; each has its own store on the coordinator.
+        """
+        if block == "prohibits":
+            self.device_prohibits[device_serial] = payload
+        else:
+            _LOGGER.debug("Ignoring unrouted block %s for %s", block, device_serial)
+            return
+
+        self._last_push = time.monotonic()
+        self.data = self._snapshot()
+        self.async_update_listeners()
+
+    @callback
+    def _schedule_adapter_blocks(self) -> None:
+        """Kick off the socket-only reads without holding up the refresh.
+
+        These have to go one at a time, and each waits a moment for its
+        answer, so running them inline would add seconds to every poll for
+        no benefit. The answers arrive on their own events and update the
+        entities when they land.
+        """
+        if self.push is None or not self.push.connected:
+            return
+        self.hass.async_create_background_task(
+            self._async_request_adapter_blocks(),
+            name=f"{DOMAIN}_adapter_blocks",
+        )
+
+    async def _async_request_adapter_blocks(self) -> None:
+        """Ask each adapter to report the blocks that come over the socket.
+
+        `KumoCloudPush` throttles this to the app's one request a minute per
+        serial and block, which is why calling it on every refresh is safe.
+        """
+        if self.push is None or not self.push.connected:
+            return
+        for serial in self._serials():
+            for block in ADAPTER_BLOCKS:
+                try:
+                    await self.push.async_force_request(serial, block)
+                except Exception as err:
+                    _LOGGER.debug(
+                        "Could not ask %s to report %s: %s", serial, block, err
+                    )
+
+    async def async_request_adapter_block(self, device_serial: str, block: str) -> None:
+        """Ask one adapter to report one block now, ignoring the throttle.
+
+        Used after a write, so the switch reflects what the unit actually
+        took rather than what was sent to it.
+        """
+        if self.push is None or not self.push.connected:
+            return
+        try:
+            await self.push.async_force_request(device_serial, block, force=True)
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not ask %s to report %s: %s", device_serial, block, err
+            )
 
     async def async_refresh_prohibits(self, device_serial: str) -> None:
         """Re-read one device's lockout state straight away.
@@ -385,6 +471,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             # speed back up.
             if self.push is not None:
                 await self.push.async_set_serials(self._serials())
+                self._schedule_adapter_blocks()
             self._apply_push_interval()
 
             return self._snapshot()

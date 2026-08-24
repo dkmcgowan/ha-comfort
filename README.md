@@ -254,6 +254,9 @@ The lockout switches report the unit's `effective` state, which is what it
 is actually enforcing. A lock can also be applied account-wide, and those
 show in the attributes but cannot be cleared from here.
 
+Lockout state also comes over the push channel, so a change made at the wall
+remote shows up in seconds rather than waiting for the next slow poll.
+
 ### Settings you can see but not change
 
 Two remain read only:
@@ -267,12 +270,30 @@ alone. Set them in the Comfort app; Home Assistant reflects the change.
 
 ### Auto Dry and Comfort Settings
 
-**Auto Dry**, which runs dry mode to hold a target humidity within a
-temperature range, is not exposed. The write is accepted and discarded: the
-adapter endpoint returns 200 and echoes the settings back, and the app still
-shows the feature off afterwards. The state is not readable either, so even
-a write-only control could not tell you whether it had worked. Both halves
-would have to be solved before this is worth shipping.
+**Auto Dry**, which runs dry mode to hold a target humidity without letting
+the room get cold, is not exposed, because the cloud will not say what it is
+set to.
+
+This one took some digging, so the answer is worth recording. `GET
+/devices/{serial}/auto-dry` returns null for every zone. The Comfort app
+does not use that route either: it asks the adapter to report itself over
+the push channel, `force_adapter_request` with the block name, and renders
+whatever comes back. Doing exactly that returns an empty block for every
+unit, including immediately after a write the cloud answers 200 to. The same
+request for `prohibits` returns full data in about a second, so the
+mechanism works and the request is well formed. There is simply no Auto Dry
+value stored.
+
+Which leaves the question of why the app shows per zone Auto Dry state at
+all. It persists its whole query cache to the phone, so what it displays is
+its own record of toggles made on that phone, not anything the cloud
+reports. That survives force closing the app, which is why it looks like
+real state. It does not survive signing out. So the app and this integration
+can disagree about Auto Dry, and the app is not the authority.
+
+The write is accepted and echoed back, but with no way to read the value
+there is no way to confirm the unit ever applied it, so shipping a control
+would mean shipping a switch that cannot tell you whether it worked.
 
 **Comfort Settings**, which the app also calls presets, returns
 `426 invalidAppVersion` on every endpoint in the family and on every API
