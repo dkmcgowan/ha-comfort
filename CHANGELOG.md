@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.13.0] - 2026-08-24
+
+Auto Dry becomes available after all, as a service.
+
+1.12.0 left it out on the grounds that a setting nothing reports back has no
+honest entity shape. That was right about the entity and wrong about the
+conclusion. A service does not have to hold state, so it can offer the write
+without pretending to know the result, and what to do about that becomes the
+caller's decision rather than a claim the integration makes.
+
+### Added
+
+- **`kumo_cloud.set_auto_dry`**, turning Auto Dry on or off for one zone or
+  all of them, with optional `target_humidity`, `overcool` and `offset`.
+  Fields left out are not sent, so the unit keeps whatever it had.
+
+### Write only, deliberately
+
+Nothing reports Auto Dry back: the REST route returns null for every zone
+and asking the adapter over the push channel returns an empty block. So
+there is no state to show and no way to confirm a unit applied the change.
+Treat the service as a request rather than a guarantee.
+
+The Comfort app has the same blind spot without looking like it. Its per
+zone toggle is fed by a cache on the phone holding what was last pressed
+there. Signing out clears it and every zone comes back off, which is how
+this was confirmed on a real account: three zones that had shown on for days
+came back off, because nothing existed to restore them from.
+
 ## [1.12.0] - 2026-08-24
 
 Settings can now be read straight off an adapter over the push channel,

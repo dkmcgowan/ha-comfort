@@ -190,6 +190,36 @@
           "description": "Which account to change. Only needed when more than one is set up."
         }
       }
+    },
+    "set_auto_dry": {
+      "name": "Set Auto Dry",
+      "description": "Turns Auto Dry on or off. Auto Dry runs dry mode to pull humidity down without letting the room get cold. This is a service rather than a switch because nothing reports the setting back: the cloud accepts the change but will not say what a unit is set to, so there is no state to show and no way to confirm it was applied. Leave the zone empty to set every zone.",
+      "fields": {
+        "enabled": {
+          "name": "Enabled",
+          "description": "Turn Auto Dry on or off."
+        },
+        "zone": {
+          "name": "Zone",
+          "description": "Which zone to set. Leave empty for all of them."
+        },
+        "target_humidity": {
+          "name": "Target humidity",
+          "description": "Relative humidity to aim for, as a percentage. Left alone if not given."
+        },
+        "overcool": {
+          "name": "Overcool",
+          "description": "How far below the setpoint the unit may cool while drying, in degrees. Left alone if not given."
+        },
+        "offset": {
+          "name": "Offset",
+          "description": "Temperature offset the unit applies while drying. Left alone if not given."
+        },
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Which account to act on. Only needed with more than one configured."
+        }
+      }
     }
   }
 }

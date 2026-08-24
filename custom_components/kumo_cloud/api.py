@@ -492,12 +492,36 @@ class KumoCloudAPI:
             device_serial, {"indoorUnit": {"prohibits": {"local": local}}}
         )
 
-    # Auto Dry would be written here, as
-    # `relay_command(serial, {"adapter": {"autodry": {"enable": bool}}})`.
-    # It is not, because the value cannot be read back from anywhere: REST
-    # returns null and the adapter's own report over the push channel comes
-    # back empty. See the Auto Dry section of the README, and
-    # `scripts/probe_force_adapter.py` to try it.
+    async def set_auto_dry(
+        self,
+        device_serial: str,
+        enable: bool,
+        target_humid: int | None = None,
+        overcool: int | None = None,
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        """Turn Auto Dry on or off, and set what it aims for.
+
+        Byte for byte the request the Comfort app makes. Only the fields
+        passed are sent, which is how the app does it too.
+
+        Note the case: the block is `autodry` going out and `autoDry` coming
+        back, which is the app's own inconsistency rather than a typo here.
+
+        **There is no way to read this back and so no way to confirm a unit
+        applied it.** REST returns null for every zone, and asking the
+        adapter over the push channel returns an empty block. That is why
+        this backs a service and not a switch. See the Auto Dry section of
+        the README.
+        """
+        autodry: dict[str, Any] = {"enable": enable}
+        if target_humid is not None:
+            autodry["targetHumid"] = target_humid
+        if overcool is not None:
+            autodry["overcool"] = overcool
+        if offset is not None:
+            autodry["offset"] = offset
+        return await self.relay_command(device_serial, {"adapter": {"autodry": autodry}})
 
     async def _request_optional(self, method: str, endpoint: str) -> dict[str, Any] | None:
         """Make a request, returning None when the endpoint is absent.

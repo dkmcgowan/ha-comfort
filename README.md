@@ -133,7 +133,7 @@ each zone's own timezone.
 
 ## Services
 
-Six, all callable from automations. Setpoints are in Celsius everywhere,
+Seven, all callable from automations. Setpoints are in Celsius everywhere,
 because that is what the API stores.
 
 | Service | What it does |
@@ -144,6 +144,7 @@ because that is what the API stores.
 | `kumo_cloud.set_schedules_enabled` | Starts or stops the running season |
 | `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
 | `kumo_cloud.set_hold` | Pins settings on a zone, or all of them. This is Away mode |
+| `kumo_cloud.set_auto_dry` | Turns Auto Dry on or off. Write only, see below |
 
 ### Reading schedules
 
@@ -240,6 +241,40 @@ since it can react to presence, weather and everything else HA knows. The
 hold is here for parity with the app, and because it keeps working if Home
 Assistant is down.
 
+### Auto Dry
+
+Auto Dry runs dry mode to pull humidity down without letting the room get
+cold. Leave `zone` out to set every zone:
+
+```yaml
+action: kumo_cloud.set_auto_dry
+data:
+  enabled: true
+  zone: Den
+  target_humidity: 50
+```
+
+`target_humidity`, `overcool` and `offset` are optional, and anything left
+out is not sent, so the unit keeps whatever it had.
+
+**This is write only, and it is a service rather than a switch for a
+reason.** Nothing reports Auto Dry back. `GET /devices/{serial}/auto-dry`
+returns null for every zone, and asking the adapter directly over the push
+channel returns an empty block. So there is no state to show and no way to
+confirm a unit applied the change. A switch would have had to invent a
+state; a service only claims to send the request, which leaves what to do
+about it up to you and your automations.
+
+The Comfort app has the same blind spot, though it does not look like it.
+It shows a per zone toggle, but that comes from a cache on the phone holding
+what was last pressed there, not from anything the cloud knows. Signing out
+of the app clears it and every zone comes back off, which is how this was
+confirmed. So if the app and this integration disagree about Auto Dry,
+neither one is reading the unit, and the app is not the authority.
+
+Worth knowing before you automate on it: since nothing can confirm the
+setting took, treat `set_auto_dry` as a request rather than a guarantee.
+
 ### Adapter settings
 
 The status LED and the wall remote lockouts are real controls, not just
@@ -268,32 +303,7 @@ Two remain read only:
 The cloud accepts a new value for these, returns success, and leaves them
 alone. Set them in the Comfort app; Home Assistant reflects the change.
 
-### Auto Dry and Comfort Settings
-
-**Auto Dry**, which runs dry mode to hold a target humidity without letting
-the room get cold, is not exposed, because the cloud will not say what it is
-set to.
-
-This one took some digging, so the answer is worth recording. `GET
-/devices/{serial}/auto-dry` returns null for every zone. The Comfort app
-does not use that route either: it asks the adapter to report itself over
-the push channel, `force_adapter_request` with the block name, and renders
-whatever comes back. Doing exactly that returns an empty block for every
-unit, including immediately after a write the cloud answers 200 to. The same
-request for `prohibits` returns full data in about a second, so the
-mechanism works and the request is well formed. There is simply no Auto Dry
-value stored.
-
-Which leaves the question of why the app shows per zone Auto Dry state at
-all. It persists its whole query cache to the phone, so what it displays is
-its own record of toggles made on that phone, not anything the cloud
-reports. That survives force closing the app, which is why it looks like
-real state. It does not survive signing out. So the app and this integration
-can disagree about Auto Dry, and the app is not the authority.
-
-The write is accepted and echoed back, but with no way to read the value
-there is no way to confirm the unit ever applied it, so shipping a control
-would mean shipping a switch that cannot tell you whether it worked.
+### Comfort Settings
 
 **Comfort Settings**, which the app also calls presets, returns
 `426 invalidAppVersion` on every endpoint in the family and on every API
@@ -365,8 +375,8 @@ automation system, and staying out of it means a bug here can never touch
 your credentials, your address, or your equipment's commissioning. Set your
 system up in the Comfort app; use this to run it.
 
-**Auto Dry and Comfort Settings** are absent because they cannot be reached,
-not because they were skipped. See above.
+**Comfort Settings** is absent because it cannot be reached, not because it
+was skipped. See above.
 
 ## Behavior notes
 

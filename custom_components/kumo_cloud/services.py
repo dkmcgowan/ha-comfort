@@ -10,6 +10,10 @@ clearing events.
 individual events, because that is what the API does: a POST to a season's
 schedules overwrites the named zone's events. An empty list clears them.
 
+`set_auto_dry` is here for a different reason: it is a write with no
+readable state anywhere, so there is nothing for an entity to report. A
+service makes no claim it cannot back up.
+
 Every route and body here was verified against a real account, including
 the two that had to be corrected after the first attempt: `reset-filter` is
 a PATCH, and `clean` needs the schedule ids in its body.
@@ -43,8 +47,13 @@ SERVICE_SET_SCHEDULES_ENABLED = "set_schedules_enabled"
 SERVICE_CLEAR_SEASON_EVENTS = "clear_season_events"
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_SET_HOLD = "set_hold"
+SERVICE_SET_AUTO_DRY = "set_auto_dry"
 ATTR_HOLD_TYPE = "hold_type"
 HOLD_TYPES = ["until_next_event", "permanent"]
+
+ATTR_TARGET_HUMIDITY = "target_humidity"
+ATTR_OVERCOOL = "overcool"
+ATTR_OFFSET = "offset"
 
 ATTR_ENTRY_ID = "config_entry_id"
 ATTR_SEASON = "season"
@@ -101,6 +110,20 @@ SCHEMA_SET_HOLD = vol.Schema(
         vol.Optional(ATTR_AIR_DIRECTION): cv.string,
         vol.Optional(ATTR_COOL_SETPOINT): vol.Coerce(float),
         vol.Optional(ATTR_HEAT_SETPOINT): vol.Coerce(float),
+    }
+)
+SCHEMA_SET_AUTO_DRY = vol.Schema(
+    {
+        **_ENTRY,
+        vol.Required(ATTR_ENABLED): cv.boolean,
+        # No zone means every zone that can take it.
+        vol.Optional(ATTR_ZONE): cv.string,
+        # Ranges are the app's own slider bounds.
+        vol.Optional(ATTR_TARGET_HUMIDITY): vol.All(
+            vol.Coerce(int), vol.Range(min=30, max=80)
+        ),
+        vol.Optional(ATTR_OVERCOOL): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
+        vol.Optional(ATTR_OFFSET): vol.All(vol.Coerce(int), vol.Range(min=-10, max=10)),
     }
 )
 
@@ -343,6 +366,51 @@ async def _set_hold(call: ServiceCall) -> None:
     await coordinator.async_request_refresh()
 
 
+async def _set_auto_dry(call: ServiceCall) -> None:
+    """Turn Auto Dry on or off, and optionally set what it aims for.
+
+    A service rather than a switch, deliberately. Auto Dry cannot be read
+    back from anywhere: the REST route returns null for every zone, and
+    asking the adapter over the push channel returns an empty block. A
+    switch would have to invent a state it does not know. A service says
+    only what it does, which is send the request, so acting on it is the
+    caller's decision.
+
+    The same is true of the fields it can set. They are the app's, and they
+    are written the same way, but nothing reports them back.
+    """
+    coordinator = _coordinator(call.hass, call)
+
+    wanted = call.data.get(ATTR_ZONE)
+    if wanted:
+        targets = [
+            zone
+            for zone in coordinator.zones
+            if wanted in (zone["name"], zone["id"]) and zone.get("adapter")
+        ]
+        if not targets:
+            known = ", ".join(zone["name"] for zone in coordinator.zones)
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_zone",
+                translation_placeholders={"zone": wanted, "known": known},
+            )
+    else:
+        targets = [zone for zone in coordinator.zones if zone.get("adapter")]
+
+    enabled = call.data[ATTR_ENABLED]
+    for zone in targets:
+        serial = zone["adapter"]["deviceSerial"]
+        _LOGGER.debug("Setting Auto Dry enable=%s on %s", enabled, zone["name"])
+        await coordinator.api.set_auto_dry(
+            serial,
+            enabled,
+            target_humid=call.data.get(ATTR_TARGET_HUMIDITY),
+            overcool=call.data.get(ATTR_OVERCOOL),
+            offset=call.data.get(ATTR_OFFSET),
+        )
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Register the schedule services once for the integration."""
     if hass.services.has_service(DOMAIN, SERVICE_GET_SCHEDULES):
@@ -375,4 +443,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_HOLD, _set_hold, schema=SCHEMA_SET_HOLD
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_AUTO_DRY, _set_auto_dry, schema=SCHEMA_SET_AUTO_DRY
     )
