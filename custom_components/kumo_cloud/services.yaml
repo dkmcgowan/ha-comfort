@@ -67,7 +67,9 @@ set_hold:
       required: false
       selector:
         select:
-          options: [cool, heat, dry, vent, auto, off]
+          # Quoted deliberately. Unquoted, YAML reads `off` as the boolean
+          # false, and hassfest then sees a null where a string belongs.
+          options: ["cool", "heat", "dry", "vent", "auto", "off"]
     cool_setpoint:
       required: false
       selector:

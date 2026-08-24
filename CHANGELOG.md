@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.10.1] - 2026-08-24
+
+### Fixed
+
+- **hassfest rejected `services.yaml`.** The `operation_mode` options were
+  written unquoted, and YAML reads a bare `off` as the boolean false, so the
+  validator found a null where a string belonged. Quoted, with a note saying
+  why.
+
+### Documentation
+
+- **The README now shows how to call every service**, with worked examples
+  for reading schedules into a `response_variable`, writing or clearing a
+  zone's timetable, toggling scheduling, and using a hold as Away mode.
+- **The read-only settings say plainly why they are read only:** nobody has
+  worked out how to write them. The cloud accepts the value, returns
+  success, and changes nothing, and every payload shape the app itself
+  builds has been tried. Reading works, so they are sensors.
+- **Auto Dry and Comfort Settings are documented as unreachable rather than
+  unimplemented**, with what was actually checked.
+- **The excluded configuration surface is spelled out**, screen by screen,
+  as a deliberate line rather than a backlog.
+
 ## [1.10.0] - 2026-08-24
 
 Filling the gaps found by walking the Comfort app screen by screen.

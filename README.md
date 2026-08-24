@@ -129,21 +129,44 @@ with the mode and setpoints it will apply in its attributes. Events carry
 weekdays and a time but no date, so the next occurrence is worked out in
 each zone's own timezone.
 
-Four services:
+## Services
+
+Six, all callable from automations. Setpoints are in Celsius everywhere,
+because that is what the API stores.
 
 | Service | What it does |
 |---|---|
 | `kumo_cloud.get_schedules` | Returns every zone's schedule as response data, with the next change per zone |
-| `kumo_cloud.set_season` | Makes a schedule season the active one |
-| `kumo_cloud.set_schedules_enabled` | Turns scheduling on or off for the whole site |
-| `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
 | `kumo_cloud.set_schedule` | Replaces one zone's timetable. An empty event list clears it |
+| `kumo_cloud.set_season` | Makes a schedule season the active one |
+| `kumo_cloud.set_schedules_enabled` | Starts or stops the running season |
+| `kumo_cloud.clear_season_events` | Deletes every event in a season. This cannot be undone |
 | `kumo_cloud.set_hold` | Pins settings on a zone, or all of them. This is Away mode |
+
+### Reading schedules
+
+Returns response data rather than setting state, so use `response_variable`:
 
 ```yaml
 action: kumo_cloud.get_schedules
 response_variable: schedules
 ```
+
+You then have `schedules.season`, `schedules.zones`, and per zone
+`event_count`, `events`, `next_change` and `next_event`. For example, to act
+only when the Den has something coming up:
+
+```yaml
+- action: kumo_cloud.get_schedules
+  response_variable: schedules
+- condition: template
+  value_template: "{{ schedules.zones['Den'].next_change is not none }}"
+```
+
+### Writing a schedule
+
+`set_schedule` replaces that zone's whole timetable, because that is what the
+API does. Whatever you pass becomes the schedule:
 
 ```yaml
 action: kumo_cloud.set_schedule
@@ -155,15 +178,38 @@ data:
       operation_mode: cool
       cool_setpoint: 22.0
       heat_setpoint: 19.0
+    - days: [Sa, Su]
+      start_time: "0930"
+      operation_mode: cool
+      fan_speed: low
+      cool_setpoint: 23.0
+      heat_setpoint: 19.0
 ```
 
-Setpoints are in Celsius, because that is what the API stores.
+`days` are two letter codes (`Mo Tu We Th Fr Sa Su`) and `start_time` is
+`"HHMM"`, quoted so YAML does not read it as a number. To clear a zone:
+
+```yaml
+action: kumo_cloud.set_schedule
+data:
+  zone: Den
+  events: []
+```
+
+### Turning scheduling on and off
+
+Either the switch on the site device, or:
+
+```yaml
+action: kumo_cloud.set_schedules_enabled
+data:
+  enabled: false
+```
 
 ### Away mode
 
-The Comfort app's Away mode is a hold: it pins chosen settings on your zones
-until you end it. `kumo_cloud.set_hold` does the same thing. Leave the zone
-out to hold everything, which is what Away does.
+A hold pins settings until you clear it. Leave `zone` out to hold every
+zone, which is what the app's Away mode does:
 
 ```yaml
 action: kumo_cloud.set_hold
@@ -174,33 +220,59 @@ data:
   cool_setpoint: 27.0
 ```
 
-Anything you leave out keeps the zone's current value. Set `enabled: false`
-to end it. `until_next_event` releases at the next scheduled change instead
-of holding indefinitely.
+Anything you leave out keeps that zone's current value. `hold_type` is
+either `permanent`, which lasts until you clear it, or `until_next_event`,
+which releases at the next scheduled change. To end it:
+
+```yaml
+action: kumo_cloud.set_hold
+data:
+  enabled: false
+```
+
+Each zone has a `binary_sensor.<zone>_hold` showing whether a hold is active,
+with its expiry and the settings it is pinning in the attributes.
 
 For most Home Assistant setups an automation is a better tool than a hold,
 since it can react to presence, weather and everything else HA knows. The
-hold is here for parity with the app, and because it survives HA being down.
+hold is here for parity with the app, and because it keeps working if Home
+Assistant is down.
 
-### Read-only settings
+### Settings you can see but not change
 
-Some things the Comfort app can change are readable here but not writable.
-The cloud accepts the new value, returns success, and leaves it unchanged;
-the app sets them over a channel this integration does not use. They are
-sensors rather than controls, because a switch that does nothing is worse
-than no switch:
+Three things the Comfort app can change are readable here and not writable:
 
-- **The adapter's status LED**
-- **The temperature display offset**
-- **The per-unit minimum and maximum setpoint limits**
+- **The WiFi adapter's status LED**, `binary_sensor.<zone>_status_led`
+- **The temperature display offset**, `sensor.<zone>_temperature_offset`
+- **The per-unit setpoint limits**, `sensor.<zone>_minimum_setpoint_limit`
+  and `_maximum_setpoint_limit`
 
-All three update correctly in Home Assistant when you change them in the
-app.
+To be plain about why: **nobody has worked out how to set them.** The cloud
+accepts the new value through both the device update and the command
+endpoint, returns a success code for each, and then leaves the value exactly
+as it was. Every payload shape the app itself constructs has been tried. The
+app changes them over some channel this integration has not identified.
 
-The cloud reports whether the light is on and will not let you change it. It
-accepts the field, returns 200, and does nothing: the value reads back
-unchanged. The Comfort app sets it over a channel this integration does not
-use. So it is a sensor rather than a switch, which is the honest shape.
+Reading them works perfectly. Change the LED in the app and Home Assistant
+reflects it within seconds. So they are sensors rather than controls,
+because a switch that silently does nothing is worse than no switch at all.
+
+If you know how these are written, an issue would be very welcome.
+
+### Auto Dry and Comfort Settings are missing for the same reason
+
+**Auto Dry**, the feature that runs dry mode to hold a target humidity
+within a temperature range, is not exposed here. It is not that it was
+skipped: the state is invisible. On an account with Auto Dry enabled on
+three zones and off on a fourth, every document the API will return is
+byte-for-byte identical between them, `/devices/{serial}/auto-dry` returns
+`null` for all four, and the push channel carries nothing about it.
+
+**Comfort Settings**, which the app also calls presets, returns
+`426 invalidAppVersion` on every endpoint in the family and on every API
+version tried, including the exact headers the Comfort app sends.
+
+Both are wanted. Neither is reachable yet.
 
 ### Controlling the whole house
 
@@ -249,26 +321,25 @@ exists, but it belongs to the Kumo Station, so it stays empty without one.
 The outdoor sensors here come from a weather service instead, and are
 labeled as such.
 
-**Anything to do with your account.** Passwords, usernames, email
-verification, your postal address, your profile, ownership transfer,
-contractor requests and support chat are all reachable through the API and
-all deliberately left out. None of it belongs in a home automation system,
-and staying out of it means a bug here can never touch your credentials or
-your account details. Manage that in the Comfort app or on the web.
+**Configuration and account management, on purpose.** Roughly a third of the
+app's API surface is settings, and none of it is here. That means everything
+under the app's Settings screens: location details and address, timezone,
+notification preferences, transferring or deleting a location, adding a
+contractor or requesting service, changing your password or username, email
+verification, the temperature display preference, third-party integration
+links, terms and privacy.
 
-**Provisioning.** Claiming, unregistering, and the installer level settings
-of an indoor unit are out for the same reason. Set your equipment up in the
-Comfort app; use this to run it.
+Provisioning is out for the same reason: claiming and unregistering
+adapters, pairing codes, and the installer-level settings of an indoor unit.
+So is deleting a zone.
 
-**Creating and editing individual schedule events.** Reading schedules works
-(see below), and so does switching season, enabling or disabling scheduling
-and clearing events. Building a week of events is not exposed, because the
-payload is a whole per-zone timetable and expressing that through a service
-schema would be worse than editing it in the Comfort app. Home Assistant's
-own automations are a better tool for that anyway.
+This is a deliberate line, not a backlog. None of it belongs in a home
+automation system, and staying out of it means a bug here can never touch
+your credentials, your address, or your equipment's commissioning. Set your
+system up in the Comfort app; use this to run it.
 
-**Comfort presets.** These still return `426` on every API version tried.
-Unlike schedules, no working route has been found for them yet.
+**Auto Dry and Comfort Settings** are absent because they cannot be reached,
+not because they were skipped. See above.
 
 ## Behavior notes
 
