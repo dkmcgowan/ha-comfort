@@ -129,3 +129,38 @@ class TestCelsiusDeltaToFahrenheit:
     def test_it_is_not_the_reading_conversion(self):
         """The old bug: an offset converted as though it were a reading."""
         assert temperature.c_delta_to_f(0) != temperature.c_to_f(0)
+
+
+class TestRoomTemperatureMatchesTheApp:
+    """The room-temperature table beats arithmetic, zone by zone.
+
+    Checked against the Comfort app on 2026-08-25 with every display offset
+    cleared. The app shows whole Fahrenheit degrees. Den read 71 and the
+    other three read 70, against stored values of 22.0 and 21.5.
+
+    These four are the cases that separate the table from arithmetic, which
+    is why they are worth pinning: converting by 9/5 and rounding gives 72
+    and 71, so a sensor left as a Celsius native value disagrees with the
+    app on every one of them.
+    """
+
+    def test_den_reads_seventy_one(self):
+        assert c_to_f(22.0) == 71
+
+    def test_the_other_three_read_seventy(self):
+        assert c_to_f(21.5) == 70
+
+    def test_arithmetic_would_have_disagreed_on_both(self):
+        """Rounded arithmetic gives 72 and 71, which is what we saw wrong."""
+        for celsius, seen_in_app in ((22.0, 71), (21.5, 70)):
+            assert round(celsius * 9.0 / 5.0 + 32.0) != seen_in_app
+            assert c_to_f(celsius) == seen_in_app
+
+    def test_every_stored_step_lands_on_a_whole_degree(self):
+        """`roomTemp` moves in half degrees; each must display as an integer.
+
+        Home Assistant converting a Celsius native value produced 71.6 for
+        Den, a tenth that exists only as an artifact of the conversion.
+        """
+        for celsius in C_TO_F:
+            assert c_to_f(celsius) == int(c_to_f(celsius))

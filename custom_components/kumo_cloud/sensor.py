@@ -1,7 +1,8 @@
 """Platform for Kumo Cloud sensors.
 
 Provides standalone sensor entities for each Mitsubishi zone:
-- Temperature (the room reading the unit controls against, offset included)
+- Temperature (the room reading the unit controls against, offset included,
+  converted the way the Comfort app converts it)
 - Humidity (from indoor unit)
 - WiFi Adapter Firmware Version (diagnostic, from /status)
 - WiFi Signal Strength (diagnostic, routerRssi from /status)
@@ -55,7 +56,7 @@ from .coordinator import (
 )
 from .entity import KumoCloudEntity, KumoCloudSiteEntity
 from .schedule import describe, next_event, zone_timezone
-from .temperature import c_delta_to_f
+from .temperature import c_delta_to_f, c_to_f
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -142,7 +143,52 @@ async def async_setup_entry(
 # Indoor unit sensors
 # =============================================================================
 
-class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
+
+class MitsubishiTemperatureMixin:
+    """Report a Mitsubishi temperature the way Mitsubishi displays it.
+
+    The cloud stores every temperature in Celsius, in half-degree steps.
+    Left as a Celsius native value, Home Assistant converts it to Fahrenheit
+    by arithmetic and lands between Mitsubishi's own steps: 22.0 C becomes
+    71.6, which rounds to 72, while the Comfort app and the unit's remote
+    both show 71. Confirmed on 2026-08-25 against all four zones, with the
+    display offsets cleared.
+
+    So the conversion is done here, off the lookup table in
+    `temperature.py`, and the entity presents an already-converted native
+    value. This is the same table the climate entity uses, which is what
+    stops the two from disagreeing about the same reading.
+
+    A Celsius system gets the stored value untouched, which is already what
+    the app shows there.
+    """
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the unit this system displays temperatures in."""
+        return self.hass.config.units.temperature_unit
+
+    @property
+    def suggested_display_precision(self) -> int:
+        """Return whole degrees in Fahrenheit, halves in Celsius."""
+        if self.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT:
+            return 0
+        return 1
+
+    def _display(self, celsius: float | None) -> float | None:
+        """Convert a stored Celsius reading for display."""
+        if celsius is None:
+            return None
+        if self.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT:
+            return c_to_f(celsius)
+        return celsius
+
+
+class KumoCloudTemperatureSensor(
+    MitsubishiTemperatureMixin, KumoCloudEntity, SensorEntity
+):
     """The room temperature the unit is working from.
 
     This is `roomTemp`, which is what the climate entity shows as its
@@ -155,15 +201,15 @@ class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
     stored in.
 
     So the pairing to expect on a zone with a wireless sensor is this one
-    plus `Wireless Sensor Temperature`, differing by the offset. The unit's
+    plus `Wireless Sensor Temperature`. They will not match to the decimal
+    even with the offset cleared, because `roomTemp` is the sensor rounded
+    to the half degree it is stored in, and only then converted. A zone
+    reading 21.8 on its sensor stores 22.0 here and displays 71. The unit's
     own thermistor is not separately reported; `tempSource` and
     `activeThermistor` are null on every unit seen.
     """
 
     _attr_name = "Temperature"
-    _attr_suggested_display_precision = 1
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -175,7 +221,7 @@ class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return the room temperature reported by the indoor unit."""
         adapter = self.device.zone_data.get("adapter", {})
-        return adapter.get("roomTemp")
+        return self._display(adapter.get("roomTemp"))
 
 
 class KumoCloudHumiditySensor(KumoCloudEntity, SensorEntity):
@@ -354,7 +400,19 @@ class KumoCloudWirelessSignalSensor(KumoCloudEntity, SensorEntity):
 
 
 class KumoCloudWirelessTemperatureSensor(KumoCloudEntity, SensorEntity):
-    """Temperature reading from the wireless sensor itself."""
+    """Temperature reading from the wireless sensor itself.
+
+    Deliberately not put through the Mitsubishi lookup table the room
+    temperature uses. This is the sensor's own measurement, reported to two
+    decimals and on no particular grid, so it is a real continuous reading
+    and ordinary arithmetic is the right conversion for it. The table maps
+    the half-degree steps `roomTemp` is quantized to, and has nothing to say
+    about a value in between them.
+
+    The consequence is that this sits a few tenths off `Temperature` even
+    with the display offset cleared, and that is correct rather than a
+    rounding bug: 21.8 here is stored as 22.0 there and shown as 71.
+    """
 
     _attr_name = "Wireless Sensor Temperature"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -435,7 +493,9 @@ class KumoCloudStatusCodeSensor(KumoCloudEntity, SensorEntity):
         return {"unusual_figures": unusual} if unusual else {}
 
 
-class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
+class KumoCloudSetpointLimitSensor(
+    MitsubishiTemperatureMixin, KumoCloudEntity, SensorEntity
+):
     """One end of the adapter's configured setpoint range.
 
     This is the limit stored on the adapter, which is not the same as the
@@ -447,8 +507,6 @@ class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
     feature, `isMinMaxSetpointsEnabled`, is off by default.
     """
 
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
@@ -465,7 +523,8 @@ class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
         status = self.device.device_status_data
         if status is None:
             return None
-        return status.get("minSetPoint" if self._bound == "minimum" else "maxSetPoint")
+        field = "minSetPoint" if self._bound == "minimum" else "maxSetPoint"
+        return self._display(status.get(field))
 
 
 class KumoCloudTempOffsetSensor(KumoCloudEntity, SensorEntity):

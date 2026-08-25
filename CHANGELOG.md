@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.15.1] - 2026-08-25
+
+### Fixed
+
+- **The `Temperature` sensor disagreed with both the climate entity and the
+  Comfort app.** It reported the stored Celsius value and let Home Assistant
+  convert it, which is ordinary arithmetic and lands between the half-degree
+  steps Mitsubishi actually uses. A zone the app showed as 71 read 71.6 on
+  the sensor and 71 on its own thermostat card. The two only ever agreed at
+  20 and 25 C, and were up to 0.8 F apart elsewhere.
+
+  The sensor now converts the way the climate entity does, off the lookup
+  table that matches the app and the physical remote, and takes its unit
+  from the system rather than assuming Fahrenheit. Verified against all four
+  zones of a live account with the display offsets cleared.
+
+- The `Minimum setpoint limit` and `Maximum setpoint limit` diagnostics had
+  the same flaw and are fixed the same way.
+
+### Changed
+
+- `Wireless Sensor Temperature` and `Outdoor temperature` are left on
+  ordinary arithmetic, which is correct for both: one is the sensor's own
+  measurement to two decimals, the other comes from the weather service, and
+  neither sits on Mitsubishi's half-degree grid. This is why the wireless
+  reading sits a few tenths off the room temperature even at zero offset.
+  The room value is the sensor rounded to the nearest half degree first.
+
 ## [1.15.0] - 2026-08-25
 
 ### Changed

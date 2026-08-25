@@ -362,7 +362,7 @@ When a PAC-USWHS003-TH-1 wireless sensor is attached:
 |---|---|
 | `sensor.<zone>_wireless_sensor_battery` | Battery level |
 | `sensor.<zone>_wireless_sensor_signal` | Wireless sensor RSSI |
-| `sensor.<zone>_wireless_sensor_temperature` | Wireless sensor temperature |
+| `sensor.<zone>_wireless_sensor_temperature` | Wireless sensor temperature. Reads a few tenths off `sensor.<zone>_temperature` even with no offset. [Why](#why-the-wireless-sensor-reads-differently) |
 | `sensor.<zone>_wireless_sensor_humidity` | Wireless sensor humidity |
 
 All entities for a given indoor unit are grouped under a single HA device. The device page shows the model (e.g. `MSZ-FH09NA`), the unit's firmware (`serialProfile`), and the serial number reported by the Comfort cloud. Each indoor unit sits under a site device, which carries the outdoor conditions.
@@ -423,12 +423,44 @@ already been added, so on a zone with a sensor you should expect:
 
 Read against a live account, all four zones match that to the half degree
 the offset is stored in: 23.5 against a sensor at 21.10 with an offset of
-2.5, 22.5 against 21.45 with an offset of 1, and so on. A zone with no
-offset reports the same number twice.
+2.5, 22.5 against 21.45 with an offset of 1, and so on.
 
 The indoor unit's own thermistor is not reported separately when a wireless
 sensor is the source, so there is no third reading to expose. `tempSource`
 and `activeThermistor` are null on all hardware seen.
+
+#### Why the wireless sensor reads differently
+
+Even with the offset cleared, `sensor.<zone>_wireless_sensor_temperature`
+will not equal `sensor.<zone>_temperature`. This is expected. Two things
+separate them, and both are deliberate.
+
+**`roomTemp` is rounded before you see it.** The cloud stores it in half
+degree Celsius steps, so a sensor reading 21.8 °C is stored as 22.0 °C. The
+room temperature is the sensor's value snapped to that grid, then offset.
+
+**They are converted by different rules.** Mitsubishi does not convert
+Celsius to Fahrenheit by arithmetic; it uses a lookup table, and that table
+is what the Comfort app and the wall remote display. `roomTemp` sits exactly
+on the half degree steps the table maps, so it goes through the table and
+matches the app. The wireless sensor reports to two decimals on no
+particular grid, which makes it a real continuous measurement rather than a
+display value, so it is converted by ordinary arithmetic and keeps its
+precision. The table has nothing to say about a value between its steps.
+
+Put together, on a Fahrenheit system with no offset:
+
+| | Stored | Shown | Why |
+|---|---|---|---|
+| `_wireless_sensor_temperature` | 21.8 °C | 71.2 °F | Arithmetic, one decimal |
+| `_temperature` | 22.0 °C | 71 °F | Rounded to 0.5 °C, then the table |
+
+Both are correct. The second is what your equipment is actually working
+from and what the app shows you; the first is the finer measurement, and the
+better one to graph or trigger automations on if you want resolution.
+
+The same reasoning is why `sensor.<site>_outdoor_temperature` uses
+arithmetic: it comes from a weather service, not from Mitsubishi.
 
 The offset itself is `sensor.<zone>_temperature_offset`, off by default. It
 is a **difference** between two temperatures rather than a temperature, so
@@ -514,6 +546,19 @@ several setpoints (64 to 66 °F and 69 to 72 °F). The integration uses Mitsubis
 lookup table for setpoints and display, eliminating the ~1 °F drift that
 standard rounding causes for Fahrenheit users. Values outside the lookup
 table fall back to standard conversion.
+
+Verified against the Comfort app on a live account with the display offsets
+cleared: zones storing 22.0 °C and 21.5 °C show 71 °F and 70 °F there.
+Arithmetic would have given 72 and 71, wrong on both.
+
+The table applies to everything Mitsubishi stores on its own half degree
+grid: setpoints, `roomTemp`, and the adapter's setpoint limits. It does not
+apply to readings that are not on that grid, which is the wireless sensor
+and the outdoor weather feed. See
+[Why the wireless sensor reads differently](#why-the-wireless-sensor-reads-differently).
+
+On a Celsius system the stored value is shown as-is, with no table involved.
+This is true of the sensors; the climate entity still assumes Fahrenheit.
 
 ### Authentication failures
 
