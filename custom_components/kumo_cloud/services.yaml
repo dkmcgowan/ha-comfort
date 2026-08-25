@@ -136,9 +136,9 @@ set_auto_dry:
       example: 50
       selector:
         number:
-          min: 30
-          max: 80
-          step: 1
+          min: 35
+          max: 70
+          step: 5
           unit_of_measurement: "%"
     overcool:
       required: false
@@ -146,16 +146,18 @@ set_auto_dry:
       selector:
         number:
           min: 0
-          max: 10
+          max: 2
           step: 1
+          unit_of_measurement: "°C"
     offset:
       required: false
-      example: 0
+      example: 2
       selector:
         number:
-          min: -10
-          max: 10
+          min: 0
+          max: 5
           step: 1
+          unit_of_measurement: "°C"
     config_entry_id:
       required: false
       selector:

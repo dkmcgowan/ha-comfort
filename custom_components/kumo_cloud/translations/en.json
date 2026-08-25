@@ -205,15 +205,15 @@
         },
         "target_humidity": {
           "name": "Target humidity",
-          "description": "Relative humidity to aim for, as a percentage. Left alone if not given."
+          "description": "Relative humidity to aim for, 35 to 70 percent in steps of 5. Left alone if not given."
         },
         "overcool": {
           "name": "Overcool",
-          "description": "How far below the setpoint the unit may cool while drying, in degrees. Left alone if not given."
+          "description": "How far below the setpoint the unit may cool while drying, 0 to 2 degrees Celsius. Left alone if not given."
         },
         "offset": {
           "name": "Offset",
-          "description": "Temperature offset the unit applies while drying. Left alone if not given."
+          "description": "How far above the setpoint it may run, 0 to 5 degrees Celsius. The app keeps this and overcool at least 2 apart. Left alone if not given."
         },
         "config_entry_id": {
           "name": "Account",

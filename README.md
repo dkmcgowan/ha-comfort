@@ -255,7 +255,19 @@ data:
 ```
 
 `target_humidity`, `overcool` and `offset` are optional, and anything left
-out is not sent, so the unit keeps whatever it had.
+out is not sent, so the unit keeps whatever it had. The bounds match the
+app's own sliders:
+
+| Field | Range | Notes |
+|---|---|---|
+| `target_humidity` | 35 to 70 % | In steps of 5 |
+| `overcool` | 0 to 2 °C | How far below the setpoint it may cool while drying |
+| `offset` | 0 to 5 °C | How far above it may run |
+
+In the app those last two are one range slider from -2 to +5, whose handles
+stay at least 2 degrees apart, so it will not offer you a low `overcool`
+together with a low `offset`. This service does not enforce that pairing,
+because there is no way to read back what a unit made of it either way.
 
 **This is write only, and it is a service rather than a switch for a
 reason.** Nothing reports Auto Dry back. `GET /devices/{serial}/auto-dry`

@@ -118,12 +118,17 @@ SCHEMA_SET_AUTO_DRY = vol.Schema(
         vol.Required(ATTR_ENABLED): cv.boolean,
         # No zone means every zone that can take it.
         vol.Optional(ATTR_ZONE): cv.string,
-        # Ranges are the app's own slider bounds.
+        # The app's own slider bounds, read out of its bundle rather than
+        # guessed. Humidity is 35 to 70 in steps of 5. The temperature band
+        # is one range slider from -2 to +5 C with the two handles kept at
+        # least 2 apart, split into two fields on the way out:
+        # `overcool` is the magnitude of the below-setpoint handle and
+        # `offset` is the above-setpoint one.
         vol.Optional(ATTR_TARGET_HUMIDITY): vol.All(
-            vol.Coerce(int), vol.Range(min=30, max=80)
+            vol.Coerce(int), vol.Range(min=35, max=70)
         ),
-        vol.Optional(ATTR_OVERCOOL): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
-        vol.Optional(ATTR_OFFSET): vol.All(vol.Coerce(int), vol.Range(min=-10, max=10)),
+        vol.Optional(ATTR_OVERCOOL): vol.All(vol.Coerce(int), vol.Range(min=0, max=2)),
+        vol.Optional(ATTR_OFFSET): vol.All(vol.Coerce(int), vol.Range(min=0, max=5)),
     }
 )
 
@@ -378,6 +383,13 @@ async def _set_auto_dry(call: ServiceCall) -> None:
 
     The same is true of the fields it can set. They are the app's, and they
     are written the same way, but nothing reports them back.
+
+    Bounds match the app's sliders, taken from its bundle. The app will not
+    offer every combination inside them, because its temperature band is one
+    range slider whose handles stay at least 2 degrees apart, so a low
+    `overcool` rules out a low `offset`. That is a cross field rule this
+    does not enforce, since there is no way to read back what a unit made of
+    it either way.
     """
     coordinator = _coordinator(call.hass, call)
 

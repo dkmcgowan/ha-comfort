@@ -14,7 +14,12 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+# Below the guard on purpose. Both of these arrive with Home Assistant, so
+# importing them above it turns a skip into a collection error.
+import voluptuous as vol
+
 from custom_components.kumo_cloud.api import KumoCloudAPI
+from custom_components.kumo_cloud.services import SCHEMA_SET_AUTO_DRY
 
 
 class Recorder:
@@ -99,3 +104,31 @@ def test_a_zero_optional_is_still_sent():
         "overcool": 0,
         "offset": 0,
     }
+
+
+def test_service_bounds_match_the_app():
+    """The app's slider limits, read out of its bundle.
+
+    Nothing reports these back, so a wrong bound here would be silent. The
+    humidity slider runs 35 to 70; the temperature band is one range slider
+    from -2 to +5 Celsius, sent as overcool for the magnitude of the low
+    handle and offset for the high one.
+    """
+    def accepts(field, value):
+        try:
+            SCHEMA_SET_AUTO_DRY({"enabled": True, field: value})
+        except vol.Invalid:
+            return False
+        return True
+
+    assert accepts("target_humidity", 35) and accepts("target_humidity", 70)
+    assert not accepts("target_humidity", 34)
+    assert not accepts("target_humidity", 71)
+
+    assert accepts("overcool", 0) and accepts("overcool", 2)
+    assert not accepts("overcool", 3)
+    assert not accepts("overcool", -1)
+
+    assert accepts("offset", 0) and accepts("offset", 5)
+    assert not accepts("offset", 6)
+    assert not accepts("offset", -1)

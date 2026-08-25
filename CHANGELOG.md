@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.13.1] - 2026-08-24
+
+### Fixed
+
+- **`set_auto_dry` accepted values the app does not offer.** The bounds were
+  a guess and all three were wrong. Corrected against the constants in the
+  app's own bundle: `target_humidity` is 35 to 70 in steps of 5, not 30 to
+  80; `overcool` is 0 to 2, not 0 to 10; `offset` is 0 to 5, not -10 to 10.
+
+Reported from the app, where the temperature settings would not go below a
+magnitude of 2. That turned out to be one range slider spanning -2 to +5 C
+whose two handles stay at least 2 degrees apart, split into two fields on
+the way out: `overcool` carries the magnitude of the below-setpoint handle
+and `offset` the above-setpoint one.
+
+The service does not enforce the pairing rule between them, only the outer
+bounds, because there is no way to read back what a unit made of it either
+way. The README says so.
+
+Worth stating plainly: nothing reports these values back, so a wrong bound
+here was invisible. It took someone using the app to catch it.
+
 ## [1.13.0] - 2026-08-24
 
 Auto Dry becomes available after all, as a service.
