@@ -16,12 +16,26 @@ from __future__ import annotations
 
 
 class ConnectionGrace:
-    """Tracks how long the cloud has called each adapter disconnected."""
+    """Tracks how long the cloud has called each adapter disconnected.
 
-    def __init__(self, grace: float) -> None:
-        """Initialize with how many seconds a drop is tolerated for."""
+    Two sources are weighed, because they have been seen to disagree. The
+    `connected` field on the device record is the fast one and the one that
+    lies: it read false for 90 minutes on a zone whose session history had
+    an open session running the whole time, and that false negative is what
+    made a working thermostat unavailable for an afternoon.
+
+    So a drop the history contradicts is tolerated to `cap` rather than to
+    `grace`. Not forever: if the history still shows an open session two
+    hours after the flag went false, one of the two is broken and the
+    conservative answer is to believe the flag.
+    """
+
+    def __init__(self, grace: float, cap: float) -> None:
+        """Initialize with the uncorroborated and corroborated tolerances."""
         self._grace = grace
+        self._cap = cap
         self._since: dict[str, float] = {}
+        self._open_session: dict[str, bool] = {}
 
     def note(self, serial: str, connected: bool, now: float) -> str | None:
         """Record what the cloud currently says about one adapter.
@@ -31,18 +45,35 @@ class ConnectionGrace:
         changed, so the caller can log the edges and stay quiet in between.
         """
         if connected:
+            self._open_session.pop(serial, None)
             return "restored" if self._since.pop(serial, None) is not None else None
         if serial in self._since:
             return None
         self._since[serial] = now
         return "dropped"
 
+    def corroborate(self, serial: str, open_session: bool) -> bool:
+        """Record whether the session history still shows this adapter up.
+
+        Returns True when the answer changed, so the caller logs the
+        disagreement once rather than on every poll.
+        """
+        if self._open_session.get(serial) == open_session:
+            return False
+        self._open_session[serial] = open_session
+        return True
+
     def available(self, serial: str, now: float) -> bool:
         """Return whether the adapter should still be treated as reachable."""
         since = self._since.get(serial)
         if since is None:
             return True
-        return (now - since) < self._grace
+        elapsed = now - since
+        if elapsed >= self._cap:
+            return False
+        if self._open_session.get(serial):
+            return True
+        return elapsed < self._grace
 
     def disconnected_for(self, serial: str, now: float) -> float | None:
         """Return how long the adapter has been down, or None if it is up."""
@@ -53,6 +84,8 @@ class ConnectionGrace:
         """Drop bookkeeping for adapters no longer on the site."""
         for serial in set(self._since) - serials:
             del self._since[serial]
+        for serial in set(self._open_session) - serials:
+            del self._open_session[serial]
 
 
 def summarize_history(

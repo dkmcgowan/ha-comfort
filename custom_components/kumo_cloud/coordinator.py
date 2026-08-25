@@ -18,6 +18,7 @@ from .command_cache import CommandCache
 from .connection import ConnectionGrace
 from .const import (
     DEFAULT_SCAN_INTERVAL,
+    DISCONNECT_CAP,
     DISCONNECT_GRACE,
     DOMAIN,
     PUSH_SCAN_INTERVAL,
@@ -91,7 +92,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
         # How long each adapter has been reported disconnected, so a blip
         # does not take the climate entity down with it.
-        self._connection = ConnectionGrace(DISCONNECT_GRACE)
+        self._connection = ConnectionGrace(DISCONNECT_GRACE, DISCONNECT_CAP)
 
     def _process_pending_commands(self, device_serial: str, device_detail: dict[str, Any]) -> None:
         """Overlay any values this device is still waiting on."""
@@ -272,8 +273,8 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             if edge == "dropped":
                 _LOGGER.warning(
                     "The cloud reports %s (%s) as disconnected. Its entities "
-                    "stay available for another %d seconds in case it comes "
-                    "back",
+                    "stay available for another %d seconds, longer if the "
+                    "connection history disagrees",
                     zone.get("name"),
                     serial,
                     DISCONNECT_GRACE,
@@ -286,6 +287,66 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
         self._connection.forget(serials)
+
+    async def _async_corroborate_drops(self) -> None:
+        """Check each flagged drop against the cloud's own session history.
+
+        The `connected` field on the device record is the fast signal and
+        the unreliable one: it read false for 90 minutes on a zone whose
+        history had an open session running the whole time. Taking it at
+        face value is what made a working thermostat unavailable for an
+        afternoon while the Comfort app showed nothing wrong.
+
+        Only zones currently flagged down are checked, so this costs one
+        request per poll per broken zone and nothing at all when everything
+        is working. The history is kept, which also gives the connection
+        sensor fresh figures exactly when someone is looking at them.
+        """
+        now = time.monotonic()
+        for zone in self.zones:
+            adapter = zone.get("adapter")
+            if not adapter:
+                continue
+            serial = adapter["deviceSerial"]
+            if self._connection.disconnected_for(serial, now) is None:
+                continue
+
+            try:
+                history = await self.api.get_zone_connection_history(zone["id"])
+            except (
+                KumoCloudConnectionError,
+                aiohttp.ClientError,
+                OSError,
+                TimeoutError,
+            ) as err:
+                _LOGGER.debug(
+                    "Could not re-read connection history for %s: %s",
+                    zone.get("name"),
+                    err,
+                )
+                continue
+
+            rows = (history or {}).get("data") or []
+            if rows:
+                self.zone_history[zone["id"]] = rows
+            open_session = any(
+                row.get("isConnected") and row.get("end") is None for row in rows
+            )
+            if not self._connection.corroborate(serial, open_session):
+                continue
+            if open_session:
+                _LOGGER.warning(
+                    "%s is flagged disconnected but the cloud's own history "
+                    "still shows an open session. Keeping its entities "
+                    "available; the flag has been wrong about this before",
+                    zone.get("name"),
+                )
+            else:
+                _LOGGER.warning(
+                    "%s is flagged disconnected and its session history "
+                    "agrees. Its entities will go unavailable",
+                    zone.get("name"),
+                )
 
     def device_connected(self, device_serial: str) -> bool:
         """Return whether an adapter should be treated as reachable.
@@ -560,6 +621,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 self._schedule_adapter_blocks()
             self._apply_push_interval()
             self._note_connection_states()
+            await self._async_corroborate_drops()
 
             return self._snapshot()
 

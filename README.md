@@ -452,9 +452,22 @@ which is a confusing way to be told about a two minute blip and breaks any
 automation reading the entity.
 
 So a drop is held for 15 minutes. If the adapter is back inside that, no
-entity ever moves. If it is not, the entities do go unavailable, which by
-then is the truth. Both edges are logged at warning level, naming the zone,
+entity ever moves. Both edges are logged at warning level, naming the zone,
 so the log answers the question afterwards.
+
+**The flag is also checked against the cloud's own record before it is
+believed.** It has been seen reading disconnected for 90 minutes on a zone
+whose connection history had an open session running through the entire
+period, and the history is the source that tracks real events: every zone
+closed a session within two minutes of a WiFi channel change. That false
+negative is what made a working thermostat unavailable for an afternoon
+while the Comfort app showed nothing wrong.
+
+So when a zone is flagged disconnected its history is re-read on each poll,
+and while that history still shows an open session the entities stay
+available, up to a two hour cap. Once both sources agree, the entities go
+unavailable on the normal 15 minute rule. This costs one request per poll
+per broken zone and nothing while everything is working.
 
 Nothing is smoothed away: `binary_sensor.<zone>_cloud_connection` reports
 the raw flag, and `sensor.<zone>_connected_since` reports the start of the

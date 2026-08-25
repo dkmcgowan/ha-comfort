@@ -27,12 +27,13 @@ _SPEC.loader.exec_module(_MODULE)
 ConnectionGrace = _MODULE.ConnectionGrace
 
 GRACE = 900.0
+CAP = 7200.0
 
 
 @pytest.fixture
 def grace() -> object:
-    """Return a tracker using the shipping grace period."""
-    return ConnectionGrace(GRACE)
+    """Return a tracker using the shipping tolerances."""
+    return ConnectionGrace(GRACE, CAP)
 
 
 def test_a_device_never_reported_down_is_available(grace):
@@ -182,3 +183,65 @@ class TestSummarizeHistory:
         rows = [{"start": None, "end": 100.0}, {"start": 0.0, "end": None}]
         summary = _MODULE.summarize_history(rows, 3600.0)
         assert summary["sessions"] == 1
+
+
+class TestCorroboration:
+    """A drop the session history contradicts is tolerated for longer.
+
+    From the field on 2026-08-25: one zone's `connected` field read false
+    for 90 minutes while its connection history had an open session running
+    through the whole period. The history is the source that tracks real
+    events, so the flag alone is not enough to take a thermostat away.
+    """
+
+    def test_an_open_session_outlasts_the_grace(self, grace):
+        """The 90 minute false negative, which the grace alone did not cover."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", True)
+        assert grace.available("SERIAL0001", 5400.0) is True
+
+    def test_it_still_gives_up_at_the_cap(self, grace):
+        """Two sources disagreeing for two hours means one is broken."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", True)
+        assert grace.available("SERIAL0001", CAP + 1.0) is False
+
+    def test_history_agreeing_leaves_the_grace_alone(self, grace):
+        """A real outage is still reported after fifteen minutes."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", False)
+        assert grace.available("SERIAL0001", GRACE + 1.0) is False
+
+    def test_an_unchecked_drop_uses_the_grace(self, grace):
+        """Before the history has been read, the flag gets the short rope."""
+        grace.note("SERIAL0001", False, 0.0)
+        assert grace.available("SERIAL0001", GRACE + 1.0) is False
+
+    def test_the_history_closing_the_session_ends_the_reprieve(self, grace):
+        """The adapter really did go: the next check agrees and it drops out."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", True)
+        assert grace.available("SERIAL0001", 3600.0) is True
+        grace.corroborate("SERIAL0001", False)
+        assert grace.available("SERIAL0001", 3660.0) is False
+
+    def test_reconnecting_clears_the_corroboration(self, grace):
+        """A later, genuine drop must not inherit the last one's reprieve."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", True)
+        grace.note("SERIAL0001", True, 100.0)
+        grace.note("SERIAL0001", False, 200.0)
+        assert grace.available("SERIAL0001", 200.0 + GRACE + 1.0) is False
+
+    def test_the_answer_is_reported_once(self, grace):
+        """The caller logs the disagreement, so only changes are announced."""
+        assert grace.corroborate("SERIAL0001", True) is True
+        assert grace.corroborate("SERIAL0001", True) is False
+        assert grace.corroborate("SERIAL0001", False) is True
+
+    def test_a_removed_zone_forgets_its_corroboration(self, grace):
+        """Bookkeeping does not accumulate for hardware taken off the site."""
+        grace.note("SERIAL0001", False, 0.0)
+        grace.corroborate("SERIAL0001", True)
+        grace.forget({"SERIAL0002"})
+        assert grace.available("SERIAL0001", CAP + 1.0) is True

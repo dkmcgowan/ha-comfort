@@ -63,3 +63,13 @@ PUSH_STALE_AFTER = 1800
 # was over before anyone looked. Longer than the slow poll tier, so a real
 # outage is still reported within a few minutes.
 DISCONNECT_GRACE = 900
+
+# The same, for a drop the cloud's own session history contradicts. The
+# `connected` field on the device record has been seen reading false for 90
+# minutes while `/zones/{id}/connection-history` had an open session running
+# through the whole period, and the history is the source that tracks real
+# events: every zone closed a session within two minutes of a WiFi channel
+# change. So a contradicted drop is tolerated for longer, but not forever.
+# Two hours in, one of the two sources is broken and the flag is the safer
+# one to believe.
+DISCONNECT_CAP = 7200

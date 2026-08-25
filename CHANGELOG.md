@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.15.0] - 2026-08-25
+
+### Changed
+
+- **A disconnect is now checked against the cloud's own record before the
+  entities follow it.** The `connected` field on the device record was seen
+  reading false for 90 minutes on a zone whose connection history had an
+  open session running through the whole period, and whose record simply
+  stopped being written. The history is the source that tracks real events:
+  every zone on the account closed a session within two minutes of a WiFi
+  channel change. That false negative is the "unavailable for hours" this
+  started from, and the 15 minute grace added in 1.14.0 covered 15 minutes
+  of it.
+
+  A zone flagged disconnected now has its history re-read on each poll.
+  While that history still shows an open session the entities stay
+  available, to a two hour cap, after which one of the two sources is
+  broken and the flag is the safer one to believe. Once both agree, the
+  normal 15 minute rule applies. One request per poll per broken zone, and
+  none while everything is working.
+
+- Both outcomes are logged at warning level with the zone name: whether the
+  history contradicted the flag or backed it. If this turns out to be
+  common, the log will say so.
+
 ## [1.14.1] - 2026-08-25
 
 ### Fixed
