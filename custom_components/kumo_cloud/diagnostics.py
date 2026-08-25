@@ -62,9 +62,24 @@ async def async_get_config_entry_diagnostics(
         "device_connections": async_redact_data(
             coordinator.device_connections, TO_REDACT
         ),
+        "zone_history": async_redact_data(coordinator.zone_history, TO_REDACT),
         "site": async_redact_data(coordinator.site, TO_REDACT),
         "site_weather": async_redact_data(coordinator.site_weather, TO_REDACT),
         "active_alerts": async_redact_data(coordinator.active_alerts, TO_REDACT),
+        # Which adapters the cloud is currently calling disconnected, and for
+        # how long. An entity that is unavailable while its neighbors are
+        # fine is answered here rather than by guessing from the device
+        # records, which only carry the flag's current value.
+        "disconnected_for": {
+            serial: coordinator.disconnected_for(serial)
+            for serial in coordinator.devices
+            if coordinator.disconnected_for(serial) is not None
+        },
+        "push": {
+            "connected": coordinator.push is not None and coordinator.push.connected,
+            "healthy": coordinator.push_healthy,
+            "poll_interval": str(coordinator.update_interval),
+        },
     }
 
 
@@ -102,4 +117,5 @@ async def async_get_device_diagnostics(
         "wireless_sensor": async_redact_data(
             coordinator.wireless_sensors.get(serial, {}), TO_REDACT
         ),
+        "disconnected_for": coordinator.disconnected_for(serial),
     }

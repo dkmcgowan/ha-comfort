@@ -80,37 +80,48 @@ as a one-click setup prompt.
 
 ## Entities created
 
+Entities marked **off by default** are registered disabled. They are there
+for the day something is wrong, and a dozen of them per zone buries the
+handful anyone reads daily. Turn one on from its entity page, or several at
+once from the device page. This only applies to entities created from now
+on: anything Home Assistant registered before it will keep the state it
+already has.
+
 Per zone:
 
 | Entity | Notes |
 |---|---|
 | `climate.<zone>` | Full climate control. Exposes `current_temperature`, `current_humidity` (when the API reports it), target setpoint(s), HVAC mode, fan speed, vane position |
-| `sensor.<zone>_temperature` | Room temperature |
+| `sensor.<zone>_temperature` | The room temperature the unit controls against, which is what the climate entity shows. See below |
 | `sensor.<zone>_humidity` | Room humidity (when reported) |
-| `sensor.<zone>_firmware` | WiFi adapter firmware version (diagnostic) |
 | `sensor.<zone>_wifi_signal` | WiFi adapter RSSI (diagnostic) |
-| `sensor.<zone>_filter_reminder` | Next filter maintenance date (diagnostic) |
-| `sensor.<zone>_status_code` | The two character code the unit shows on its own display. `A0` is healthy |
-| `sensor.<zone>_minimum_setpoint_limit` | The adapter's configured lower setpoint bound |
-| `sensor.<zone>_maximum_setpoint_limit` | The adapter's configured upper setpoint bound |
-| `sensor.<zone>_remote_lockout` | Which controls the wall remote is locked out of |
 | `sensor.<zone>_active_alerts` | Count of unresolved alerts, with the detail in attributes |
-| `binary_sensor.<zone>_filter` | The indoor unit's own filter flag |
-| `binary_sensor.<zone>_defrost` | Defrost cycle running |
-| `binary_sensor.<zone>_standby` | Unit in standby |
-| `binary_sensor.<zone>_hot_adjust` | Hot adjust active |
-| `binary_sensor.<zone>_fault` | Set when the unit reports an error |
-| `binary_sensor.<zone>_cloud_connection` | Whether the adapter is reaching the cloud |
-| `binary_sensor.<zone>_firmware_update` | Set when the adapter has an update waiting |
-| `binary_sensor.<zone>_hold` | A hold is overriding this zone, with its expiry and overrides in attributes |
-| `binary_sensor.<zone>_schedule_active` | A schedule is running on this zone |
 | `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
-| `sensor.<zone>_temperature_offset` | The correction the adapter applies to its reported room temperature |
+| `sensor.<zone>_firmware` | WiFi adapter firmware version (diagnostic, off by default) |
+| `sensor.<zone>_filter_reminder` | Next filter maintenance date (diagnostic, off by default) |
+| `sensor.<zone>_status_code` | The two character code the unit shows on its own display. `A0` is healthy (off by default) |
+| `sensor.<zone>_minimum_setpoint_limit` | The adapter's configured lower setpoint bound (off by default) |
+| `sensor.<zone>_maximum_setpoint_limit` | The adapter's configured upper setpoint bound (off by default) |
+| `sensor.<zone>_remote_lockout` | Which controls the wall remote is locked out of (off by default, the switches below set it) |
+| `sensor.<zone>_temperature_offset` | The correction the adapter applies to its reported room temperature (off by default). See below |
+| `binary_sensor.<zone>_filter` | The indoor unit's own filter flag |
+| `binary_sensor.<zone>_fault` | Set when the unit reports an error |
+| `binary_sensor.<zone>_cloud_connection` | Whether the adapter is reaching the cloud, unsmoothed. See below |
+| `binary_sensor.<zone>_hold` | A hold is overriding this zone, with its expiry and overrides in attributes |
+| `binary_sensor.<zone>_defrost` | Defrost cycle running (off by default) |
+| `binary_sensor.<zone>_standby` | Unit in standby (off by default) |
+| `binary_sensor.<zone>_hot_adjust` | Hot adjust active (off by default) |
+| `binary_sensor.<zone>_firmware_update` | Set when the adapter has an update waiting (off by default) |
+| `binary_sensor.<zone>_schedule_active` | A schedule is running on this zone (off by default) |
 | `button.<zone>_reset_filter` | Clears the filter reminder |
 | `switch.<zone>_status_led` | The WiFi adapter's status light |
 | `switch.<zone>_lock_remote_power` | Locks the wall remote out of power |
 | `switch.<zone>_lock_remote_mode` | Locks the wall remote out of mode |
 | `switch.<zone>_lock_remote_setpoint` | Locks the wall remote out of setpoint |
+
+On a zone with a wireless sensor (PAC-USWHS003-TH-1) paired, four more:
+`sensor.<zone>_wireless_sensor_temperature`, `_wireless_sensor_humidity`,
+`_wireless_sensor_battery` and `_wireless_sensor_signal`.
 
 Once per site:
 
@@ -130,6 +141,14 @@ automating can be driven from Home Assistant.
 with the mode and setpoints it will apply in its attributes. Events carry
 weekdays and a time but no date, so the next occurrence is worked out in
 each zone's own timezone.
+
+**It is only created for a zone that has events.** On an account that runs
+no schedules there is nothing for it to report, and a sensor sitting at
+Unknown forever reads as broken rather than as empty. Save a schedule in the
+Comfort app and the sensor appears within a poll. `kumo_cloud.get_schedules`
+reports what the account holds either way, including whether the season is
+running, which is the thing to call if you expected a schedule and no sensor
+turned up.
 
 ## Services
 
@@ -391,6 +410,58 @@ system up in the Comfort app; use this to run it.
 was skipped. See above.
 
 ## Behavior notes
+
+### Which temperature is which
+
+`sensor.<zone>_temperature` and the climate entity's `current_temperature`
+are the same number: `roomTemp`, the reading the equipment controls against.
+It is not a raw thermistor value. Where a wireless sensor is paired it is
+that sensor's measurement, and either way the adapter's display offset has
+already been added, so on a zone with a sensor you should expect:
+
+    sensor.<zone>_temperature = sensor.<zone>_wireless_sensor_temperature + offset
+
+Read against a live account, all four zones match that to the half degree
+the offset is stored in: 23.5 against a sensor at 21.10 with an offset of
+2.5, 22.5 against 21.45 with an offset of 1, and so on. A zone with no
+offset reports the same number twice.
+
+The indoor unit's own thermistor is not reported separately when a wireless
+sensor is the source, so there is no third reading to expose. `tempSource`
+and `activeThermistor` are null on all hardware seen.
+
+The offset itself is `sensor.<zone>_temperature_offset`, off by default. It
+is a **difference** between two temperatures rather than a temperature, so
+it carries no device class: Home Assistant converts a temperature by scaling
+and shifting, which is right for a reading and wrong for a gap between two,
+and displayed an offset of 0 C as 32 F.
+
+The conversion follows Mitsubishi's own rule instead. One Fahrenheit step is
+half a Celsius degree throughout their interface, the same rule their
+setpoints follow, so an offset doubles rather than scaling by 9/5. Set a zone
+to 5 in the Comfort app and the API stores 2.5; this entity shows 5 again, so
+it matches what you set.
+
+### When a zone goes unavailable
+
+The cloud flips an adapter's `connected` flag on a single missed beat and
+flips it back the same way, and a WiFi adapter sharing a busy channel does
+that several times a day. Following it directly meant one zone's thermostat
+dropping to unavailable while every sensor on the same unit carried on,
+which is a confusing way to be told about a two minute blip and breaks any
+automation reading the entity.
+
+So a drop is held for 15 minutes. If the adapter is back inside that, no
+entity ever moves. If it is not, the entities do go unavailable, which by
+then is the truth. Both edges are logged at warning level, naming the zone,
+so the log answers the question afterwards.
+
+Nothing is smoothed away: `binary_sensor.<zone>_cloud_connection` reports
+the raw flag, and `sensor.<zone>_connected_since` reports the start of the
+current connected stretch with the recent history in its `recent` attribute.
+A zone whose `connected_since` resets while its neighbors hold at weeks has
+a WiFi problem of its own, not an integration problem, and that attribute is
+where to see it.
 
 ### HVAC idle inference
 

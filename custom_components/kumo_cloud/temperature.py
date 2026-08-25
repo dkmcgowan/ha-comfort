@@ -4,6 +4,9 @@ Mitsubishi systems use 0.5 °C steps internally, but their F-to-C mapping
 diverges from standard arithmetic at several setpoints (64 to 66 °F
 and 69 to 72 °F). These lookup tables match the Comfort app and the physical
 remote exactly; values outside the tables fall back to standard rounding.
+
+The same divergence applies to a temperature *difference*, which is a
+separate function: see `c_delta_to_f`.
 """
 
 from __future__ import annotations
@@ -40,6 +43,26 @@ def c_to_f(celsius: float | None) -> float | None:
     if celsius in C_TO_F:
         return C_TO_F[celsius]
     return round(celsius * 9.0 / 5.0 + 32.0)
+
+
+def c_delta_to_f(celsius: float | None) -> float | None:
+    """Convert a temperature *difference* the way Mitsubishi's UI does.
+
+    Not a unit conversion. Mitsubishi treats one Fahrenheit step as half a
+    Celsius degree, which is the rule the setpoint table above follows: 61 F
+    is 16.0 C, 62 F is 16.5 C, and so on up. The same rule governs the
+    adapter's `roomTempDisplayOffset`, so a difference doubles rather than
+    scaling by 9/5.
+
+    Confirmed against a live account on 2026-08-25 by setting one zone's
+    offset to 5 in the Comfort app, on a Fahrenheit account, and reading the
+    field back as 2.5. Two other zones read 1 and show as 2. Real arithmetic
+    would have made 2.5 C into 4.5 F and disagreed with the app on every
+    odd value.
+    """
+    if celsius is None:
+        return None
+    return celsius * 2.0
 
 
 def f_to_c(fahrenheit: float | None) -> float | None:

@@ -192,7 +192,8 @@ async def _get_schedules(call: ServiceCall) -> ServiceResponse:
         adapter = zone.get("adapter") or {}
         entry = coordinator.zone_schedules.get(zone["id"]) or {}
         events = entry.get("events") or []
-        tzinfo = zone_timezone(adapter.get("timeZone"))
+        device = coordinator.devices.get(adapter.get("deviceSerial")) or {}
+        tzinfo = zone_timezone(device.get("timeZone") or adapter.get("timeZone"))
         upcoming = next_event(events, now, tzinfo)
         zones[zone["name"]] = {
             "event_count": len(events),

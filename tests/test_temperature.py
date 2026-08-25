@@ -89,3 +89,43 @@ def test_fallback_celsius_snaps_to_half_degrees():
     for fahrenheit in range(-40, 121):
         celsius = f_to_c(float(fahrenheit))
         assert (celsius * 2) == int(celsius * 2)
+
+
+class TestCelsiusDeltaToFahrenheit:
+    """A temperature difference follows Mitsubishi's step rule, not math.
+
+    One Fahrenheit step is half a Celsius degree throughout their UI, which
+    is what `F_TO_C` above encodes for setpoints. `roomTempDisplayOffset`
+    obeys the same rule.
+
+    Pinned against a live account on 2026-08-25: an offset set to 5 in the
+    Comfort app read back as 2.5, and two zones reading 1 show as 2 there.
+    """
+
+    def test_no_offset_stays_no_offset(self):
+        """Zero is the case the old code got most visibly wrong."""
+        assert temperature.c_delta_to_f(0) == 0.0
+
+    def test_the_value_set_in_the_app_comes_back(self):
+        """5 F in the app is stored as 2.5 C, so 2.5 C displays as 5 F."""
+        assert temperature.c_delta_to_f(2.5) == 5.0
+
+    def test_a_whole_degree_doubles(self):
+        """The two zones reading 1 show as 2 in the app."""
+        assert temperature.c_delta_to_f(1) == 2.0
+
+    def test_a_half_step_is_one_degree(self):
+        """The smallest step the field holds."""
+        assert temperature.c_delta_to_f(0.5) == 1.0
+
+    def test_a_negative_offset_keeps_its_sign(self):
+        """A difference has a direction; nothing here should shift it."""
+        assert temperature.c_delta_to_f(-1.5) == -3.0
+
+    def test_none_passes_through(self):
+        """Matches the other converters, for a field the API left out."""
+        assert temperature.c_delta_to_f(None) is None
+
+    def test_it_is_not_the_reading_conversion(self):
+        """The old bug: an offset converted as though it were a reading."""
+        assert temperature.c_delta_to_f(0) != temperature.c_to_f(0)

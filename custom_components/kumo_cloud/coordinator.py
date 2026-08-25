@@ -15,8 +15,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .command_cache import CommandCache
+from .connection import ConnectionGrace
 from .const import (
     DEFAULT_SCAN_INTERVAL,
+    DISCONNECT_GRACE,
     DOMAIN,
     PUSH_SCAN_INTERVAL,
     PUSH_STALE_AFTER,
@@ -86,6 +88,10 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Values asked for but not yet echoed back by the cloud.
         self.cached_commands = CommandCache()
+
+        # How long each adapter has been reported disconnected, so a blip
+        # does not take the climate entity down with it.
+        self._connection = ConnectionGrace(DISCONNECT_GRACE)
 
     def _process_pending_commands(self, device_serial: str, device_detail: dict[str, Any]) -> None:
         """Overlay any values this device is still waiting on."""
@@ -236,6 +242,63 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             self.update_interval = wanted
             _LOGGER.debug("Poll interval now %s", wanted)
 
+    # ---- Connection tracking -------------------------------------------
+
+    def _note_connection_states(self) -> None:
+        """Record which adapters the cloud is currently calling disconnected.
+
+        Called after every poll and after every pushed device update, so the
+        grace period is measured from when the drop was first reported rather
+        than from whenever an entity happened to ask.
+        """
+        now = time.monotonic()
+        serials: set[str] = set()
+
+        for zone in self.zones:
+            adapter = zone.get("adapter")
+            if not adapter:
+                continue
+            serial = adapter["deviceSerial"]
+            serials.add(serial)
+
+            # Absence is not evidence of a disconnect: a record that carries
+            # no `connected` field at all is treated as connected, because
+            # the alternative is marking working hardware unavailable on a
+            # partial payload.
+            device = self.devices.get(serial) or {}
+            connected = bool(device.get("connected", adapter.get("connected", True)))
+
+            edge = self._connection.note(serial, connected, now)
+            if edge == "dropped":
+                _LOGGER.warning(
+                    "The cloud reports %s (%s) as disconnected. Its entities "
+                    "stay available for another %d seconds in case it comes "
+                    "back",
+                    zone.get("name"),
+                    serial,
+                    DISCONNECT_GRACE,
+                )
+            elif edge == "restored":
+                _LOGGER.warning(
+                    "%s (%s) is connected to the cloud again",
+                    zone.get("name"),
+                    serial,
+                )
+
+        self._connection.forget(serials)
+
+    def device_connected(self, device_serial: str) -> bool:
+        """Return whether an adapter should be treated as reachable.
+
+        A drop the cloud has only just reported still counts as reachable:
+        see `connection.py` for why.
+        """
+        return self._connection.available(device_serial, time.monotonic())
+
+    def disconnected_for(self, device_serial: str) -> float | None:
+        """Return how many seconds an adapter has been down, or None."""
+        return self._connection.disconnected_for(device_serial, time.monotonic())
+
     @callback
     def _handle_push_update(self, serial: str, payload: dict[str, Any]) -> None:
         """Apply one pushed device payload and tell the entities.
@@ -263,6 +326,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 zone["adapter"] = merge_device_update(adapter, payload)
                 break
 
+        self._note_connection_states()
         self.data = self._snapshot()
         self._apply_push_interval()
         self.async_update_listeners()
@@ -429,13 +493,35 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                         else:
                             result_map[key] = result
 
-                    device_detail = result_map.get("detail") or {}
+                    # A single failed read must not blank the record. It
+                    # used to: `GET /devices/{serial}` timing out once left
+                    # an empty dict behind, and the climate entity, which is
+                    # the only one reading the device record for the fields
+                    # it needs, went unavailable until a later poll
+                    # succeeded. Every other entity carried on, because they
+                    # read the zone list and the per device reads that had
+                    # worked, which is exactly the shape of the reports:
+                    # one zone's thermostat gone while its sensors were
+                    # fine. Keep what was last known instead.
+                    device_detail = result_map.get("detail")
+                    if not device_detail:
+                        device_detail = self.devices.get(device_serial) or {}
+                        if device_detail:
+                            _LOGGER.warning(
+                                "Could not read %s this poll, keeping the "
+                                "record from the last one",
+                                device_serial,
+                            )
 
                     # Process pending commands for the device
                     self._process_pending_commands(device_serial, device_detail)
 
                     devices[device_serial] = device_detail
-                    device_profiles[device_serial] = result_map.get("profile") or []
+                    device_profiles[device_serial] = (
+                        result_map.get("profile")
+                        or self.device_profiles.get(device_serial)
+                        or []
+                    )
 
                     if result_map.get("status"):
                         device_statuses[device_serial] = result_map["status"]
@@ -473,6 +559,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 await self.push.async_set_serials(self._serials())
                 self._schedule_adapter_blocks()
             self._apply_push_interval()
+            self._note_connection_states()
 
             return self._snapshot()
 
@@ -676,15 +763,14 @@ class KumoCloudDevice:
 
     @property
     def available(self) -> bool:
-        """Return True if device is available."""
-        adapter = self.zone_data.get("adapter", {})
-        device_data = self.device_data
+        """Return True if the adapter should be treated as reachable.
 
-        # Check both adapter and device data for connection status
-        adapter_connected = adapter.get("connected", False)
-        device_connected = device_data.get("connected", adapter_connected)
-
-        return device_connected
+        The connection flag itself is read once per update on the
+        coordinator, which holds a brief drop rather than passing it
+        straight through. `binary_sensor.<zone>_cloud_connection` reports
+        the raw flag for anyone who wants to see every flap.
+        """
+        return self.coordinator.device_connected(self.device_serial)
 
     @property
     def name(self) -> str:

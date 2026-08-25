@@ -132,6 +132,10 @@ def _schedule_active(device: KumoCloudDevice) -> bool | None:
     return None if value is None else bool(value)
 
 
+# The flags worth a place on a dashboard are the ones that mean something is
+# wrong or something is overriding the schedule. The rest describe a normal
+# operating cycle, read false almost always, and are registered disabled;
+# turn them on per entity when chasing a problem.
 DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     KumoBinarySensorDescription(
         key="hold",
@@ -142,6 +146,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     ),
     KumoBinarySensorDescription(
         key="schedule_active",
+        entity_registry_enabled_default=False,
         name="Schedule active",
         icon="mdi:calendar-clock",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -156,6 +161,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     ),
     KumoBinarySensorDescription(
         key="defrost",
+        entity_registry_enabled_default=False,
         name="Defrost",
         icon="mdi:snowflake-melt",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -163,6 +169,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     ),
     KumoBinarySensorDescription(
         key="standby",
+        entity_registry_enabled_default=False,
         name="Standby",
         icon="mdi:power-standby",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -170,6 +177,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     ),
     KumoBinarySensorDescription(
         key="hot_adjust",
+        entity_registry_enabled_default=False,
         name="Hot adjust",
         icon="mdi:thermometer-chevron-up",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -191,6 +199,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
     ),
     KumoBinarySensorDescription(
         key="firmware_update",
+        entity_registry_enabled_default=False,
         name="Firmware update",
         device_class=BinarySensorDeviceClass.UPDATE,
         entity_category=EntityCategory.DIAGNOSTIC,

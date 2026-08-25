@@ -1,11 +1,18 @@
 """Platform for Kumo Cloud sensors.
 
 Provides standalone sensor entities for each Mitsubishi zone:
-- Temperature (from indoor unit's built-in thermistor)
+- Temperature (the room reading the unit controls against, offset included)
 - Humidity (from indoor unit)
 - WiFi Adapter Firmware Version (diagnostic, from /status)
 - WiFi Signal Strength (diagnostic, routerRssi from /status)
 - Filter Reminder (diagnostic, from /notification-preferences)
+
+Most of the diagnostic sensors are registered disabled. They are here for
+the day something is wrong, and a dozen of them per zone buries the handful
+anyone looks at daily. The ones left enabled are the ones that answer "is
+this zone healthy": WiFi signal, both wireless sensor readings, active
+alerts and connection uptime. Turn the rest on per entity, or per device
+from the device page, when you need them.
 
 For zones with a wireless sensor (PAC-USWHS003-TH-1) attached:
 - Wireless Sensor Battery (%)
@@ -47,6 +54,7 @@ from .coordinator import (
 )
 from .entity import KumoCloudEntity, KumoCloudSiteEntity
 from .schedule import describe, next_event, zone_timezone
+from .temperature import c_delta_to_f
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,9 +106,16 @@ async def async_setup_entry(
                 KumoCloudRemoteLockoutSensor(device),
                 KumoCloudAlertSensor(device),
                 KumoCloudConnectionSensor(device),
-                KumoCloudNextScheduleSensor(device),
                 KumoCloudTempOffsetSensor(device),
             ]
+            # Only zones that actually have a timetable get the schedule
+            # sensor. On an account that runs no schedules there is nothing
+            # for it to say and it sat at Unknown forever, which reads as
+            # broken rather than as empty. This callback runs on every
+            # refresh, so the sensor appears within a poll of the first
+            # event being saved in the Comfort app.
+            if device.schedule_events:
+                candidates.append(KumoCloudNextScheduleSensor(device))
             if adapter.get("hasSensor", False):
                 candidates += [
                     KumoCloudWirelessBatterySensor(device),
@@ -127,9 +142,25 @@ async def async_setup_entry(
 # =============================================================================
 
 class KumoCloudTemperatureSensor(KumoCloudEntity, SensorEntity):
-    """Temperature from the indoor unit's built-in thermistor."""
+    """The room temperature the unit is working from.
+
+    This is `roomTemp`, which is what the climate entity shows as its
+    current temperature and what the equipment controls against. It is not
+    a raw thermistor reading: where a wireless sensor is paired it is that
+    sensor's measurement, and either way it already has the adapter's
+    display offset added. Read live on 2026-08-25, one zone reported 23.5
+    here against a wireless sensor at 21.10, with an offset of 2.5. The
+    other three matched the same way, to the half degree the offset is
+    stored in.
+
+    So the pairing to expect on a zone with a wireless sensor is this one
+    plus `Wireless Sensor Temperature`, differing by the offset. The unit's
+    own thermistor is not separately reported; `tempSource` and
+    `activeThermistor` are null on every unit seen.
+    """
 
     _attr_name = "Temperature"
+    _attr_suggested_display_precision = 1
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -179,6 +210,7 @@ class KumoCloudFirmwareSensor(KumoCloudEntity, SensorEntity):
 
     _attr_name = "Firmware"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:chip"
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -232,6 +264,7 @@ class KumoCloudFilterReminderSensor(KumoCloudEntity, SensorEntity):
     _attr_name = "Filter Reminder"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:air-filter"
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -381,6 +414,7 @@ class KumoCloudStatusCodeSensor(KumoCloudEntity, SensorEntity):
 
     _attr_name = "Status code"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:alert-circle-outline"
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -415,6 +449,7 @@ class KumoCloudSetpointLimitSensor(KumoCloudEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, device: KumoCloudDevice, bound: str) -> None:
         """Initialize for either the minimum or the maximum bound."""
@@ -436,18 +471,26 @@ class KumoCloudTempOffsetSensor(KumoCloudEntity, SensorEntity):
     """The correction the adapter applies to its reported room temperature.
 
     Read only. The cloud accepts a new value through both the device patch
-    and the command endpoint, returns 200 for each, and leaves it unchanged,
-    the same as the status LED. Set it in the Comfort app; this reports it.
+    and the command endpoint, returns 200 for each, and leaves it unchanged.
+    Set it in the Comfort app; this reports it.
 
     Worth knowing when a zone's temperature looks wrong: the room reading
     already has this added, so a non-zero offset explains a gap between the
     unit and a wireless sensor in the same room.
+
+    **This is a difference between two temperatures, not a temperature.**
+    Declaring the temperature device class made Home Assistant convert it
+    the way it converts a reading, by scaling *and shifting*, so an offset
+    of 0 C was displayed as 32 F. There is no delta device class to use
+    instead, so the class is left off and the conversion done here, by
+    Mitsubishi's own rule rather than by arithmetic: one Fahrenheit step is
+    half a Celsius degree, so a difference doubles. See `c_delta_to_f`.
     """
 
     _attr_name = "Temperature offset"
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_suggested_display_precision = 1
     _attr_icon = "mdi:thermometer-plus"
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -456,12 +499,22 @@ class KumoCloudTempOffsetSensor(KumoCloudEntity, SensorEntity):
         self._attr_unique_id = f"{device.device_serial}_temp_offset"
 
     @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the unit the rest of this system is displayed in."""
+        return self.hass.config.units.temperature_unit
+
+    @property
     def native_value(self) -> float | None:
-        """Return the configured offset."""
+        """Return the configured offset, as a difference in that unit."""
         status = self.device.device_status_data
         if status is None:
             return None
-        return status.get("roomTempDisplayOffset")
+        offset = status.get("roomTempDisplayOffset")
+        if offset is None:
+            return None
+        if self.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT:
+            return c_delta_to_f(offset)
+        return offset
 
 
 class KumoCloudRemoteLockoutSensor(KumoCloudEntity, SensorEntity):
@@ -475,6 +528,7 @@ class KumoCloudRemoteLockoutSensor(KumoCloudEntity, SensorEntity):
 
     _attr_name = "Remote lockout"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:remote-off"
 
     def __init__(self, device: KumoCloudDevice) -> None:
@@ -591,6 +645,10 @@ class KumoCloudNextScheduleSensor(KumoCloudEntity, SensorEntity):
 
     Events carry weekdays and a time but no date, so the next occurrence is
     worked out by searching forward from now in the zone's own timezone.
+
+    Created only for a zone that has events, because there is no honest
+    state for a zone with none. `kumo_cloud.get_schedules` reports what the
+    account holds either way, including whether the season is running.
     """
 
     _attr_name = "Next schedule change"
@@ -607,7 +665,9 @@ class KumoCloudNextScheduleSensor(KumoCloudEntity, SensorEntity):
         events = self.device.schedule_events
         if not events:
             return None
-        tzinfo = zone_timezone(self.device.device_data.get("timeZone"))
+        adapter = self.device.zone_data.get("adapter") or {}
+        name = self.device.device_data.get("timeZone") or adapter.get("timeZone")
+        tzinfo = zone_timezone(name)
         return next_event(events, dt_util.utcnow(), tzinfo)
 
     @property

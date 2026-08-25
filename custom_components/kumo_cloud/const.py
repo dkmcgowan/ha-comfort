@@ -54,3 +54,12 @@ PUSH_SCAN_INTERVAL = 300
 # to the normal poll. Push is event driven and can legitimately go quiet, so
 # this is deliberately several times longer than any expected gap.
 PUSH_STALE_AFTER = 1800
+
+# How long the cloud has to keep calling an adapter disconnected before its
+# entities follow. The flag flips on a single missed beat and flips back the
+# same way, and a WiFi adapter on a busy channel does that several times a
+# day. Following it directly turns a blip into an unavailable climate entity,
+# which breaks automations and leaves a gap in the history for something that
+# was over before anyone looked. Longer than the slow poll tier, so a real
+# outage is still reported within a few minutes.
+DISCONNECT_GRACE = 900

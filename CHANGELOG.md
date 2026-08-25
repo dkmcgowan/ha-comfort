@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.14.0] - 2026-08-25
+
+Everything here came from a week of running the previous build on real
+hardware. Three of the four are the integration's fault.
+
+### Fixed
+
+- **One zone's thermostat could go unavailable while its own sensors kept
+  working.** Two separate causes, both fixed. A failed `GET /devices/{serial}`
+  left an empty record behind, and the climate entity is the only one that
+  reads that record for the fields it needs, so it went unavailable until a
+  later poll succeeded while the sensors, which read the zone list and the
+  per device calls that had worked, carried on. The last known record is now
+  kept instead, and the failure is logged rather than passed over at debug
+  level. Separately, the cloud's `connected` flag was followed directly, and
+  it flips on a single missed beat.
+- **A brief disconnect no longer takes the entities down.** A drop has to
+  last 15 minutes before the entities follow it. Both edges are logged at
+  warning level with the zone name, so the log answers the question
+  afterwards. `binary_sensor.<zone>_cloud_connection` still reports the raw
+  flag for anyone who wants to see every flap, and
+  `sensor.<zone>_connected_since` still carries the history.
+- **The temperature offset read 32 degrees.** It was declared as a
+  temperature, so Home Assistant converted it the way it converts a reading,
+  by scaling *and shifting*, and an offset of 0 C came out as 32 F. It is a
+  difference between two temperatures, not a temperature. There is no delta
+  device class to use instead, so the class is gone and the entity converts
+  the value itself, by Mitsubishi's rule rather than by arithmetic: one
+  Fahrenheit step is half a Celsius degree throughout their interface, the
+  same rule the setpoint table follows, so an offset doubles rather than
+  scaling by 9/5. Confirmed by setting a zone to 5 in the Comfort app and
+  reading the field back as 2.5. Arithmetic would have shown 4.5.
+- **`sensor.<zone>_next_schedule_change` sat at Unknown on accounts with no
+  schedule.** It is now created only for a zone that actually has events, and
+  appears within a poll of the first one being saved in the Comfort app.
+  `kumo_cloud.get_schedules` reports what the account holds either way.
+
+### Changed
+
+- **Most diagnostic entities are registered disabled.** Firmware, filter
+  reminder, status code, both setpoint limits, remote lockout, temperature
+  offset, defrost, standby, hot adjust, firmware update and schedule active.
+  They are there for the day something is wrong, and a dozen per zone buries
+  the handful anyone reads daily. Left enabled: WiFi signal, the wireless
+  sensor readings, active alerts, connection uptime, filter, fault, cloud
+  connection and hold. **This only affects entities created from now on.**
+  Anything already registered keeps the state it has, and is disabled from
+  its entity page.
+- The room temperature sensor says what it actually is. `roomTemp` is the
+  reading the equipment controls against: on a zone with a wireless sensor
+  that is the sensor's measurement with the adapter's offset added, not the
+  indoor unit's own thermistor, which is not separately reported. The README
+  spells out the arithmetic between the two temperature entities.
+- The schedule sensor and the `get_schedules` service read the zone timezone
+  from the device record with the adapter as a fallback, rather than each
+  reading one of the two.
+
+### Housekeeping
+
+`binary_sensor.<zone>_status_led` was removed in 1.11.0 and replaced by
+`switch.<zone>_status_led`. A removed entity stays in Home Assistant's
+registry showing unavailable until it is deleted by hand, so if you upgraded
+through 1.11.0 there is a stale one to delete on each zone. Nothing in the
+integration can remove it for you.
+
 ## [1.13.1] - 2026-08-24
 
 ### Fixed
