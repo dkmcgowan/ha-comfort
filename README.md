@@ -96,7 +96,7 @@ Per zone:
 | `sensor.<zone>_humidity` | Room humidity (when reported) |
 | `sensor.<zone>_wifi_signal` | WiFi adapter RSSI (diagnostic) |
 | `sensor.<zone>_active_alerts` | Count of unresolved alerts, with the detail in attributes |
-| `sensor.<zone>_connected_since` | Start of the current connected stretch, with recent outages in attributes |
+| `sensor.<zone>_connected_since` | Start of the current connected session, with availability, outage count and worst outage in attributes |
 | `sensor.<zone>_firmware` | WiFi adapter firmware version (diagnostic, off by default) |
 | `sensor.<zone>_filter_reminder` | Next filter maintenance date (diagnostic, off by default) |
 | `sensor.<zone>_status_code` | The two character code the unit shows on its own display. `A0` is healthy (off by default) |
@@ -458,10 +458,18 @@ so the log answers the question afterwards.
 
 Nothing is smoothed away: `binary_sensor.<zone>_cloud_connection` reports
 the raw flag, and `sensor.<zone>_connected_since` reports the start of the
-current connected stretch with the recent history in its `recent` attribute.
-A zone whose `connected_since` resets while its neighbors hold at weeks has
-a WiFi problem of its own, not an integration problem, and that attribute is
-where to see it.
+current connected session.
+
+That sensor's attributes are the ones worth reading when a zone misbehaves.
+`availability_percent`, `outages`, `longest_outage_minutes` and
+`downtime_minutes` cover the whole window the cloud has kept, which is
+several days. A zone that reconnects twenty times a day for two minutes each
+is a different problem from one that goes away for an afternoon, and a
+reconnect count on its own does not tell them apart.
+
+Each row the cloud returns is a connected **session**, not an outage, and
+`recent_sessions` is presented that way. The outages are the gaps between
+sessions, which is what the figures above count.
 
 ### HVAC idle inference
 

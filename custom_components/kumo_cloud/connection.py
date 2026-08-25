@@ -53,3 +53,57 @@ class ConnectionGrace:
         """Drop bookkeeping for adapters no longer on the site."""
         for serial in set(self._since) - serials:
             del self._since[serial]
+
+
+def summarize_history(
+    rows: list[dict], now: float
+) -> dict[str, float | int | None]:
+    """Turn `/zones/{id}/connection-history` into outage figures.
+
+    **Each row is a connected session, not an outage.** `isConnected` marks
+    only the currently open row; every closed row reads false whatever
+    happened during it. The outages are the *gaps between* sessions.
+
+    This was read the other way round at first, which turned a healthy
+    adapter into one that looked down for days. The arithmetic settles it:
+    read as outages, the rows sum to far more than the window they cover,
+    which cannot happen. Read as sessions they sum to just under it, and the
+    shortfall is the downtime.
+
+    `rows` are `{start, end, isConnected, uptime}` with `start` and `end` as
+    epoch seconds, `end` None on the open row. `now` is epoch seconds.
+    Returns durations in minutes and availability as a percentage.
+    """
+    sessions = sorted(
+        (row["start"], row["end"] if row.get("end") is not None else now)
+        for row in rows
+        if row.get("start") is not None
+    )
+    if not sessions:
+        return {
+            "sessions": 0,
+            "outages": 0,
+            "downtime_minutes": None,
+            "longest_outage_minutes": None,
+            "availability_percent": None,
+        }
+
+    window = now - sessions[0][0]
+    gaps = []
+    previous_end = None
+    for start, end in sessions:
+        if previous_end is not None and start > previous_end:
+            gaps.append(start - previous_end)
+        previous_end = max(previous_end or end, end)
+
+    downtime = sum(gaps)
+    return {
+        "sessions": len(sessions),
+        "outages": len(gaps),
+        "downtime_minutes": round(downtime / 60, 1),
+        "longest_outage_minutes": round(max(gaps) / 60, 1) if gaps else 0.0,
+        "availability_percent": (
+            round(100.0 * (window - downtime) / window, 2) if window > 0 else None
+        ),
+        "window_hours": round(window / 3600, 1),
+    }

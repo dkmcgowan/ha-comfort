@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.14.1] - 2026-08-25
+
+### Fixed
+
+- **Connection history was read backwards, and said healthy adapters had
+  been down for days.** Each row `/zones/{id}/connection-history` returns is
+  a connected **session**, not an outage: `isConnected` is true only on the
+  currently open row, so every closed row reads false whatever happened
+  during it, and `uptime` is that session's length. The outages are the gaps
+  between sessions. The `outages_recorded` attribute counted closed sessions
+  and so reported one adapter as having eleven outages in a week when it had
+  eleven connected runs and, in total, 29 minutes offline.
+
+  The arithmetic is what catches this and is worth keeping in mind for any
+  endpoint that returns intervals: read as outages the rows summed to
+  several times the window they covered, which cannot happen.
+
+- `sensor.<zone>_connected_since` now reports `availability_percent`,
+  `outages`, `downtime_minutes`, `longest_outage_minutes` and `window_hours`
+  instead of a count of rows. A zone that reconnects twenty times a day for
+  two minutes each is a different problem from one that goes away for an
+  afternoon. The rows themselves are still there as `recent_sessions`,
+  labeled as sessions.
+
+The claim in 1.5.0 that this account "had a two day outage that nothing in
+Home Assistant would have shown" was the same misreading. It was a two day
+connected run. The entry is left as it was written.
+
 ## [1.14.0] - 2026-08-25
 
 Everything here came from a week of running the previous build on real

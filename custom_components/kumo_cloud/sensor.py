@@ -47,6 +47,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from .connection import summarize_history
 from .coordinator import (
     KumoCloudConfigEntry,
     KumoCloudDataUpdateCoordinator,
@@ -595,9 +596,15 @@ class KumoCloudConnectionSensor(KumoCloudEntity, SensorEntity):
     """When the adapter last came online, with its recent history.
 
     `/zones/{id}/connection-history` returns rows of
-    `{start, end, isConnected, uptime}`, newest first. The open row is the
-    current stretch. This account had a two day gap that nothing in Home
-    Assistant would otherwise have shown.
+    `{start, end, isConnected, uptime}`, newest first. **Each row is a
+    connected session, not an outage.** `isConnected` marks only the open
+    row, so every closed row reads false whatever happened during it, and
+    `uptime` is that session's length. The outages are the gaps between
+    sessions, which is what the attributes here report.
+
+    Read the other way round, the rows look like days of downtime on an
+    adapter that was working the whole time. The arithmetic is what settles
+    it: as outages they sum to more than the window they cover.
     """
 
     _attr_name = "Connected since"
@@ -620,24 +627,42 @@ class KumoCloudConnectionSensor(KumoCloudEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the recent history so a flapping adapter is visible."""
+        """Expose how much of the window the adapter was actually reachable.
+
+        The figures are the point of this entity: a zone that reconnects
+        twenty times a day for two minutes each is a different problem from
+        one that goes away for an afternoon, and a count of sessions does
+        not tell them apart.
+        """
         history = self.device.connection_history
         if not history:
             return {}
-        return {
-            "recent": [
+
+        rows = []
+        for row in history:
+            start = _parse_timestamp(row.get("start"))
+            if start is None:
+                continue
+            end = _parse_timestamp(row.get("end"))
+            rows.append(
                 {
-                    "start": row.get("start"),
-                    "end": row.get("end"),
-                    "connected": row.get("isConnected"),
-                    "uptime": row.get("uptime"),
+                    "start": start.timestamp(),
+                    "end": None if end is None else end.timestamp(),
                 }
-                for row in history[:10]
-            ],
-            "outages_recorded": sum(
-                1 for row in history if not row.get("isConnected")
-            ),
-        }
+            )
+
+        attributes: dict[str, Any] = dict(
+            summarize_history(rows, dt_util.utcnow().timestamp())
+        )
+        attributes["recent_sessions"] = [
+            {
+                "start": row.get("start"),
+                "end": row.get("end"),
+                "length": row.get("uptime"),
+            }
+            for row in history[:10]
+        ]
+        return attributes
 
 
 class KumoCloudNextScheduleSensor(KumoCloudEntity, SensorEntity):
