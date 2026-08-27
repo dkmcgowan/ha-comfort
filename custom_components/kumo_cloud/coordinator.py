@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import time
 from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
@@ -21,8 +22,18 @@ from .const import (
     DOMAIN,
     PUSH_SCAN_INTERVAL,
     PUSH_STALE_AFTER,
+    STATUS_REPORT_INTERVAL,
 )
 from .push import KumoCloudPush, merge_device_update
+
+# The block that carries the live readings: room temperature, setpoints,
+# mode, fan, humidity, signal strength. Asked for on its own timer rather
+# than with the blocks below, because it is the one that decides how stale
+# the thermostat looks and it needs a much shorter cycle than they do.
+#
+# The answer arrives on `device_update` carrying a `deviceSerial`, so unlike
+# every other block there is nothing to attribute by hand.
+STATUS_BLOCK = "iuStatus"
 
 # Blocks asked for over the push channel on every refresh.
 #
@@ -88,6 +99,9 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         # Values asked for but not yet echoed back by the cloud.
         self.cached_commands = CommandCache()
 
+        # Cancels the timer that asks every adapter to report itself.
+        self._cancel_status_reports: CALLBACK_TYPE | None = None
+
     def _process_pending_commands(self, device_serial: str, device_detail: dict[str, Any]) -> None:
         """Overlay any values this device is still waiting on."""
         self.cached_commands.apply(device_serial, device_detail, time.monotonic())
@@ -107,16 +121,31 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             on_device_update=self._handle_push_update,
             on_block_update=self._handle_push_block,
         )
-        if await push.async_start(self._serials()):
-            self.push = push
-            self._apply_push_interval()
-            _LOGGER.debug("Push channel open, poll interval now %s", self.update_interval)
-            # Ask for the socket-only blocks now rather than waiting out a
-            # poll interval.
-            self._schedule_adapter_blocks()
+        if not await push.async_start(self._serials()):
+            return
+
+        self.push = push
+        self._apply_push_interval()
+        _LOGGER.debug("Push channel open, poll interval now %s", self.update_interval)
+
+        # Ask for everything now rather than waiting out an interval. The
+        # readings come first: the record the first poll just read can be
+        # hours old, and a thermostat showing last night's temperature for a
+        # minute after a restart is the thing this is here to stop.
+        self._schedule_force_blocks((STATUS_BLOCK, *ADAPTER_BLOCKS))
+
+        self._cancel_status_reports = async_track_time_interval(
+            self.hass,
+            self._async_status_reports,
+            timedelta(seconds=STATUS_REPORT_INTERVAL),
+            name=f"{DOMAIN}_status_reports",
+        )
 
     async def async_stop_push(self) -> None:
         """Close the live update channel."""
+        if self._cancel_status_reports is not None:
+            self._cancel_status_reports()
+            self._cancel_status_reports = None
         if self.push is not None:
             await self.push.async_stop()
             self.push = None
@@ -141,37 +170,57 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         self.async_update_listeners()
 
     @callback
-    def _schedule_adapter_blocks(self) -> None:
-        """Kick off the socket-only reads without holding up the refresh.
+    def _schedule_force_blocks(self, blocks: tuple[str, ...]) -> None:
+        """Kick off the socket-only reads without holding up the caller.
 
-        These have to go one at a time, and each waits a moment for its
-        answer, so running them inline would add seconds to every poll for
-        no benefit. The answers arrive on their own events and update the
-        entities when they land.
+        These go one at a time, and the ones whose answers carry no serial
+        wait a moment for each, so running them inline would add seconds to
+        a refresh for no benefit. The answers arrive on their own events and
+        update the entities when they land.
         """
         if self.push is None or not self.push.connected:
             return
         self.hass.async_create_background_task(
-            self._async_request_adapter_blocks(),
-            name=f"{DOMAIN}_adapter_blocks",
+            self._async_force_blocks(blocks),
+            name=f"{DOMAIN}_force_blocks",
         )
 
-    async def _async_request_adapter_blocks(self) -> None:
-        """Ask each adapter to report the blocks that come over the socket.
+    async def _async_force_blocks(self, blocks: tuple[str, ...]) -> None:
+        """Ask every adapter to report the given blocks over the socket.
 
-        `KumoCloudPush` throttles this to the app's one request a minute per
-        serial and block, which is why calling it on every refresh is safe.
+        Ordered block first and serial second, so one slow block cannot get
+        between a zone and its readings. `prohibits` answers carry no serial
+        and so are waited for one at a time, which with four zones is
+        several seconds; asking serial first would have pushed the fourth
+        zone's `iuStatus` behind all of them.
+
+        `KumoCloudPush` throttles each serial and block pair to the app's own
+        one a minute, so calling this more often than that costs a debug line
+        and nothing else.
         """
         if self.push is None or not self.push.connected:
             return
-        for serial in self._serials():
-            for block in ADAPTER_BLOCKS:
+        for block in blocks:
+            for serial in self._serials():
                 try:
                     await self.push.async_force_request(serial, block)
                 except Exception as err:
                     _LOGGER.debug(
                         "Could not ask %s to report %s: %s", serial, block, err
                     )
+
+    async def _async_status_reports(self, _now: datetime | None = None) -> None:
+        """Ask every adapter for a fresh reading, on the app's own cadence.
+
+        **This is the only thing that produces a new reading.** Nothing is
+        pushed unprompted: a five minute listen on a subscribed socket
+        returned the replayed snapshots and then silence, and the cloud's
+        record was measured 12.7 hours stale overnight. A poll re-reads that
+        same record, so the poll cannot fix it and never could.
+
+        See `STATUS_REPORT_INTERVAL` for why the cadence is what it is.
+        """
+        await self._async_force_blocks((STATUS_BLOCK,))
 
     async def async_request_adapter_block(self, device_serial: str, block: str) -> None:
         """Ask one adapter to report one block now, ignoring the throttle.
@@ -509,7 +558,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             # speed back up.
             if self.push is not None:
                 await self.push.async_set_serials(self._serials())
-                self._schedule_adapter_blocks()
+                self._schedule_force_blocks(ADAPTER_BLOCKS)
             self._apply_push_interval()
 
             return self._snapshot()

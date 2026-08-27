@@ -30,13 +30,24 @@ the throttle is almost certainly there to protect the adapters.
 Auto Dry is what sent us looking for this, and it is the one block that
 comes back empty. See `ADAPTER_BLOCKS` in `coordinator.py`.
 
-`device_status_v2` is not copied. The app emits it on a 30 s timer while a
-device screen is open, to nudge an adapter into reporting, which is a
-foreground UI concern that polling already covers.
+**Nothing arrives on this channel unprompted.** A five minute listen on a
+subscribed socket returned the two replayed snapshots per device and then
+silence, and the cloud's record was measured 12.7 hours stale overnight
+while every adapter was reachable. `GET /devices/{serial}` returns that same
+record, so the poll re-reads the staleness rather than curing it. A reading
+only becomes current when someone asks for one, which is why the coordinator
+runs `force_adapter_request` for `iuStatus` on a timer.
 
-Polling stays on as a heartbeat. Push is event driven and can go quiet for
-long stretches with nothing wrong, so silence cannot be distinguished from a
-dead socket without one.
+`device_status_v2` is not copied. The app's `startPollingForDeviceStatus`
+does emit it every 30 s (`AUTO_POLLING_INTERVAL`) while a device screen is
+open, and stops on the way out, which reads like a nudge to report. But
+emitting it here in exactly the app's shape, a bare serial, produced no
+answer at all in twelve seconds, on four adapters, while
+`force_adapter_request` had all four reporting in under one. Whatever it
+does, it is not what makes a reading arrive.
+
+Polling stays on as a heartbeat: it proves the account still works and
+refreshes the fields push never sends.
 """
 
 from __future__ import annotations
@@ -74,7 +85,10 @@ FORCE_REQUEST_EVENTS = {
     "mhk2": "device_update",
 }
 
-# The app's own limit, one request a minute per serial and block.
+# The app's own limit, one request a minute per serial and block. Read out
+# of its bundle rather than guessed: `forceAdapterRequest` keys
+# `deviceForceRequestLastRun` on `${serial}-${type}` and returns early when
+# `Date.now() - last < 60000` unless its `force` flag is set.
 FORCE_REQUEST_INTERVAL = 60.0
 
 # How long to wait for one block answer before moving on, and how often to
@@ -291,6 +305,11 @@ class KumoCloudPush:
         """
         self._connected = False
         self._awaiting.clear()
+        # The throttle goes too. A request that went out just before the
+        # drop was never answered, and letting its timestamp stand would
+        # make the first ask after reconnecting the one that gets skipped,
+        # which is the one that matters most.
+        self._last_force_request.clear()
         _LOGGER.debug("Push channel disconnected")
 
     async def _handle_connect_error(self, data: Any = None) -> None:

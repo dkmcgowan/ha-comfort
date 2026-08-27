@@ -51,6 +51,25 @@ DEFAULT_SCAN_INTERVAL = 60
 PUSH_SCAN_INTERVAL = 300
 
 # If push has delivered nothing for this long, stop trusting it and go back
-# to the normal poll. Push is event driven and can legitimately go quiet, so
-# this is deliberately several times longer than any expected gap.
+# to the normal poll. With `STATUS_REPORT_INTERVAL` below asking every
+# adapter to report once a minute, a healthy channel is never quiet for long,
+# so this only has to be generous enough to ride out a run of adapters that
+# decline to answer.
 PUSH_STALE_AFTER = 1800
+
+# How often each adapter is asked to report its current readings over the
+# push channel.
+#
+# **Nothing arrives unprompted.** A five minute listen on a subscribed socket
+# returned the replayed snapshots and then nothing at all, and the cloud's
+# record was measured 12.7 hours stale overnight. `GET /devices/{serial}`
+# hands back that same record, so polling harder cannot make it fresher; the
+# only thing that produces a new reading is asking the adapter for one.
+#
+# 60 seconds is the Comfort app's own floor, read out of its bundle: its
+# `forceAdapterRequest` refuses a repeat inside 60000 ms for the same device
+# and block. While a zone screen is open the app is twice as busy as this,
+# nudging every 30 seconds (`AUTO_POLLING_INTERVAL`). So this sits at the
+# vendor's documented throttle rather than at anything invented here, and it
+# costs one socket emit per zone per minute with no REST request at all.
+STATUS_REPORT_INTERVAL = 60

@@ -15,6 +15,7 @@ import asyncio
 import importlib.util
 import pathlib
 import sys
+import time
 
 _PATH = pathlib.Path(__file__).parent.parent / "custom_components" / "kumo_cloud" / "push.py"
 _SPEC = importlib.util.spec_from_file_location("kumo_push_blocks", _PATH)
@@ -317,3 +318,87 @@ def test_every_block_event_has_a_request_type_that_produces_it():
 def test_parsed_blocks_are_not_also_treated_as_unhandled():
     """An event cannot be both parsed and merely logged."""
     assert not set(push.BLOCK_UPDATE_EVENTS) & set(push.OBSERVED_EVENTS)
+
+
+# ---- The readings block ------------------------------------------------
+
+
+class TestStatusRequests:
+    """Asking for `iuStatus`, which is what keeps a thermostat current.
+
+    Nothing is pushed unprompted: a five minute listen on a subscribed
+    socket returned the replayed snapshots and then silence, and the cloud's
+    record was measured 12.7 hours stale overnight. The coordinator asks for
+    this block on a timer, so the cost of one request matters in a way it
+    does not for the blocks that are read once in a while.
+    """
+
+    def test_the_answer_arrives_on_the_device_event(self):
+        """Which is what lets it skip the attribution machinery."""
+        assert push.FORCE_REQUEST_EVENTS["iuStatus"] == push.EVENT_DEVICE_UPDATE
+
+    def test_it_is_not_a_tracked_block(self):
+        """A tracked block waits for its answer. This one must not.
+
+        `device_update` payloads carry their own `deviceSerial`, so there is
+        nothing to attribute by remembering what was asked. Tracking it
+        would make every request block for the answer timeout, once per zone
+        per minute, for no benefit.
+        """
+        assert push.EVENT_DEVICE_UPDATE not in push.BLOCK_UPDATE_EVENTS
+
+    def test_the_request_returns_without_waiting(self):
+        """The timer fires once a minute; a wait per zone would stack up."""
+        channel, _ = make_push()
+
+        started = time.monotonic()
+        assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is True
+        elapsed = time.monotonic() - started
+
+        assert elapsed < push.ANSWER_TIMEOUT
+        assert channel._awaiting == {}
+        assert channel._client.emitted == [
+            ("force_adapter_request", ("SERIAL0001", "iuStatus"))
+        ]
+
+    def test_an_answer_is_routed_by_the_serial_it_carries(self):
+        """No guessing from what was outstanding, unlike `prohibits`."""
+        seen = []
+        channel = push.KumoCloudPush(
+            access_token_provider=lambda: "token",
+            token_refresher=lambda: None,
+            on_device_update=lambda serial, payload: seen.append((serial, payload)),
+        )
+        channel._client = FakeClient()
+        channel._connected = True
+
+        run(channel._handle_device_update([{"deviceSerial": "SERIAL0002", "roomTemp": 21.5}]))
+
+        assert seen == [("SERIAL0002", {"deviceSerial": "SERIAL0002", "roomTemp": 21.5})]
+
+    def test_a_drop_clears_the_throttle(self):
+        """The first ask after reconnecting is the one that matters most.
+
+        A request that went out just before the socket dropped was never
+        answered. Letting its timestamp stand would skip the ask that comes
+        straight after the reconnect, which is exactly when the reading is
+        most likely to have moved.
+        """
+        channel, _ = make_push()
+
+        assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is True
+        assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is False
+
+        run(channel._handle_disconnect())
+        channel._connected = True
+
+        assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is True
+
+    def test_the_throttle_still_holds_across_a_quiet_connection(self):
+        """Nothing above weakens the app's one a minute while it is up."""
+        channel, _ = make_push()
+
+        run(channel.async_force_request("SERIAL0001", "iuStatus"))
+
+        assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is False
+        assert len(channel._client.emitted) == 1

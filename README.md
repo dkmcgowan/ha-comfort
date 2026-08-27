@@ -474,6 +474,36 @@ setpoints follow, so an offset doubles rather than scaling by 9/5. Set a zone
 to 5 in the Comfort app and the API stores 2.5; this entity shows 5 again, so
 it matches what you set.
 
+### How a reading stays current
+
+**Nothing arrives from the cloud unprompted.** A five minute listen on a
+subscribed push socket returned the snapshots it replays on subscribe and
+then silence, and the cloud's stored record for all four zones was measured
+12.7 hours stale overnight while every adapter was reachable and the Comfort
+app worked. `GET /devices/{serial}` returns that same stored record, and the
+zone list carries a copy of it with the identical timestamp, so polling
+harder cannot make it fresher. There is nothing newer to poll.
+
+What produces a new reading is asking an adapter for one. So every minute,
+each adapter is asked to report its `iuStatus` block over the push socket,
+and the answer comes back in well under a second carrying room temperature,
+setpoints, mode, fan, humidity and signal strength. Measured on a live
+account: the request went out and all four zones had answered 0.37 seconds
+later.
+
+The cadence is the Comfort app's own. Its `forceAdapterRequest` refuses a
+repeat inside 60 seconds for the same device and block, and this integration
+uses that same limit, enforced the same way. While a zone screen is open the
+app is twice as busy as this, nudging every 30 seconds. So the traffic is
+one socket message per zone per minute on a connection that is already open,
+and **no REST request at all**. The REST poll stays on its five minute
+heartbeat.
+
+The same request goes out on startup, before the first minute has elapsed,
+because the record the setup poll just read can be hours old. That is what
+stops a thermostat showing last night's temperature for a minute after Home
+Assistant restarts.
+
 ### When a zone goes unavailable
 
 Almost never, on purpose. A zone's entities go unavailable only when there

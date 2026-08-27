@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.17.0] - 2026-08-26
+
+### Added
+
+- **Every adapter is now asked for a fresh reading once a minute.** Nothing
+  arrives from this cloud unprompted: a five minute listen on a subscribed
+  push socket returned the snapshots it replays on subscribe and then
+  silence, and the stored record for all four zones was measured 12.7 hours
+  stale overnight while every adapter was reachable. `GET /devices/{serial}`
+  returns that same stored record, and the zone list carries a copy with the
+  identical timestamp, so no amount of polling could reach anything newer.
+
+  Asking is what produces a reading. Each adapter is now asked to report its
+  `iuStatus` block over the push socket every 60 seconds, and again on
+  startup so a restart does not show last night's temperature. Measured on a
+  live account: the request went out and all four zones had answered 0.37
+  seconds later, two of them with a value the cached record had wrong by half
+  a degree.
+
+  The cadence is the Comfort app's own throttle, read out of its bundle:
+  `forceAdapterRequest` refuses a repeat inside 60000 ms for the same device
+  and block. The app is twice as busy as this while a zone screen is open,
+  nudging every 30 seconds. The cost here is one socket message per zone per
+  minute on a connection that is already open, and no REST request at all.
+  The REST poll stays on its five minute heartbeat.
+
+### Fixed
+
+- The force request throttle is cleared when the socket drops. A request
+  that went out just before a disconnect was never answered, and its
+  timestamp used to stand, which skipped the first ask after reconnecting.
+  That is the ask most likely to find a value that has moved.
+
+### Changed
+
+- Socket block requests now go block first and serial second. `prohibits`
+  answers carry no device serial and so are waited for one at a time; asking
+  serial first put the fourth zone's readings behind all of them. Readings
+  now land in under half a second while the slower blocks follow.
+
+- `push.py` no longer claims `device_status_v2` nudges an adapter into
+  reporting. The app does emit it every 30 seconds while a device screen is
+  open, but emitting it here in exactly the app's shape produced no answer at
+  all in twelve seconds, on four adapters, while `force_adapter_request` had
+  all four reporting in under one.
+
 ## [1.16.0] - 2026-08-26
 
 ### Fixed
