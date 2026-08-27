@@ -66,14 +66,17 @@ async def async_get_config_entry_diagnostics(
         "site": async_redact_data(coordinator.site, TO_REDACT),
         "site_weather": async_redact_data(coordinator.site_weather, TO_REDACT),
         "active_alerts": async_redact_data(coordinator.active_alerts, TO_REDACT),
-        # Which adapters the cloud is currently calling disconnected, and for
-        # how long. An entity that is unavailable while its neighbors are
-        # fine is answered here rather than by guessing from the device
-        # records, which only carry the flag's current value.
-        "disconnected_for": {
-            serial: coordinator.disconnected_for(serial)
+        # Both connection signals side by side, because they disagree. The
+        # flag is what the device record carries; the session is what the
+        # connection history shows. Neither decides availability any more,
+        # and a report of "everything went unavailable" is answered by the
+        # entity states rather than by either of these.
+        "connection": {
+            serial: {
+                "flag": (coordinator.devices.get(serial) or {}).get("connected"),
+                "open_session": coordinator.device_online(serial),
+            }
             for serial in coordinator.devices
-            if coordinator.disconnected_for(serial) is not None
         },
         "push": {
             "connected": coordinator.push is not None and coordinator.push.connected,
@@ -117,5 +120,8 @@ async def async_get_device_diagnostics(
         "wireless_sensor": async_redact_data(
             coordinator.wireless_sensors.get(serial, {}), TO_REDACT
         ),
-        "disconnected_for": coordinator.disconnected_for(serial),
+        "connection": {
+            "flag": (coordinator.devices.get(serial) or {}).get("connected"),
+            "open_session": coordinator.device_online(serial),
+        },
     }

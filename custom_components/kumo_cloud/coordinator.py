@@ -15,11 +15,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
 from .command_cache import CommandCache
-from .connection import ConnectionGrace
+from .connection import has_open_session
 from .const import (
     DEFAULT_SCAN_INTERVAL,
-    DISCONNECT_CAP,
-    DISCONNECT_GRACE,
     DOMAIN,
     PUSH_SCAN_INTERVAL,
     PUSH_STALE_AFTER,
@@ -89,10 +87,6 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Values asked for but not yet echoed back by the cloud.
         self.cached_commands = CommandCache()
-
-        # How long each adapter has been reported disconnected, so a blip
-        # does not take the climate entity down with it.
-        self._connection = ConnectionGrace(DISCONNECT_GRACE, DISCONNECT_CAP)
 
     def _process_pending_commands(self, device_serial: str, device_detail: dict[str, Any]) -> None:
         """Overlay any values this device is still waiting on."""
@@ -245,120 +239,18 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
     # ---- Connection tracking -------------------------------------------
 
-    def _note_connection_states(self) -> None:
-        """Record which adapters the cloud is currently calling disconnected.
+    def device_online(self, device_serial: str) -> bool | None:
+        """Return what the session history says about one adapter.
 
-        Called after every poll and after every pushed device update, so the
-        grace period is measured from when the drop was first reported rather
-        than from whenever an entity happened to ask.
+        None when there is no history for the zone yet. **Nothing keys
+        availability on this**; it is what the diagnostic sensors report.
+        See `connection.py` for why the `connected` flag is not used.
         """
-        now = time.monotonic()
-        serials: set[str] = set()
-
         for zone in self.zones:
             adapter = zone.get("adapter")
-            if not adapter:
-                continue
-            serial = adapter["deviceSerial"]
-            serials.add(serial)
-
-            # Absence is not evidence of a disconnect: a record that carries
-            # no `connected` field at all is treated as connected, because
-            # the alternative is marking working hardware unavailable on a
-            # partial payload.
-            device = self.devices.get(serial) or {}
-            connected = bool(device.get("connected", adapter.get("connected", True)))
-
-            edge = self._connection.note(serial, connected, now)
-            if edge == "dropped":
-                _LOGGER.warning(
-                    "The cloud reports %s (%s) as disconnected. Its entities "
-                    "stay available for another %d seconds, longer if the "
-                    "connection history disagrees",
-                    zone.get("name"),
-                    serial,
-                    DISCONNECT_GRACE,
-                )
-            elif edge == "restored":
-                _LOGGER.warning(
-                    "%s (%s) is connected to the cloud again",
-                    zone.get("name"),
-                    serial,
-                )
-
-        self._connection.forget(serials)
-
-    async def _async_corroborate_drops(self) -> None:
-        """Check each flagged drop against the cloud's own session history.
-
-        The `connected` field on the device record is the fast signal and
-        the unreliable one: it read false for 90 minutes on a zone whose
-        history had an open session running the whole time. Taking it at
-        face value is what made a working thermostat unavailable for an
-        afternoon while the Comfort app showed nothing wrong.
-
-        Only zones currently flagged down are checked, so this costs one
-        request per poll per broken zone and nothing at all when everything
-        is working. The history is kept, which also gives the connection
-        sensor fresh figures exactly when someone is looking at them.
-        """
-        now = time.monotonic()
-        for zone in self.zones:
-            adapter = zone.get("adapter")
-            if not adapter:
-                continue
-            serial = adapter["deviceSerial"]
-            if self._connection.disconnected_for(serial, now) is None:
-                continue
-
-            try:
-                history = await self.api.get_zone_connection_history(zone["id"])
-            except (
-                KumoCloudConnectionError,
-                aiohttp.ClientError,
-                OSError,
-                TimeoutError,
-            ) as err:
-                _LOGGER.debug(
-                    "Could not re-read connection history for %s: %s",
-                    zone.get("name"),
-                    err,
-                )
-                continue
-
-            rows = (history or {}).get("data") or []
-            if rows:
-                self.zone_history[zone["id"]] = rows
-            open_session = any(
-                row.get("isConnected") and row.get("end") is None for row in rows
-            )
-            if not self._connection.corroborate(serial, open_session):
-                continue
-            if open_session:
-                _LOGGER.warning(
-                    "%s is flagged disconnected but the cloud's own history "
-                    "still shows an open session. Keeping its entities "
-                    "available; the flag has been wrong about this before",
-                    zone.get("name"),
-                )
-            else:
-                _LOGGER.warning(
-                    "%s is flagged disconnected and its session history "
-                    "agrees. Its entities will go unavailable",
-                    zone.get("name"),
-                )
-
-    def device_connected(self, device_serial: str) -> bool:
-        """Return whether an adapter should be treated as reachable.
-
-        A drop the cloud has only just reported still counts as reachable:
-        see `connection.py` for why.
-        """
-        return self._connection.available(device_serial, time.monotonic())
-
-    def disconnected_for(self, device_serial: str) -> float | None:
-        """Return how many seconds an adapter has been down, or None."""
-        return self._connection.disconnected_for(device_serial, time.monotonic())
+            if adapter and adapter.get("deviceSerial") == device_serial:
+                return has_open_session(self.zone_history.get(zone["id"]) or [])
+        return None
 
     @callback
     def _handle_push_update(self, serial: str, payload: dict[str, Any]) -> None:
@@ -387,7 +279,6 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 zone["adapter"] = merge_device_update(adapter, payload)
                 break
 
-        self._note_connection_states()
         self.data = self._snapshot()
         self._apply_push_interval()
         self.async_update_listeners()
@@ -620,8 +511,6 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                 await self.push.async_set_serials(self._serials())
                 self._schedule_adapter_blocks()
             self._apply_push_interval()
-            self._note_connection_states()
-            await self._async_corroborate_drops()
 
             return self._snapshot()
 
@@ -822,17 +711,6 @@ class KumoCloudDevice:
             for alert in self.coordinator.active_alerts
             if alert.get("zoneId") in (None, self.zone_id)
         ]
-
-    @property
-    def available(self) -> bool:
-        """Return True if the adapter should be treated as reachable.
-
-        The connection flag itself is read once per update on the
-        coordinator, which holds a brief drop rather than passing it
-        straight through. `binary_sensor.<zone>_cloud_connection` reports
-        the raw flag for anyone who wants to see every flap.
-        """
-        return self.coordinator.device_connected(self.device_serial)
 
     @property
     def name(self) -> str:

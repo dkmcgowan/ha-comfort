@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.16.0] - 2026-08-26
+
+### Fixed
+
+- **Every zone went unavailable overnight while the Comfort app worked.**
+  Entity availability keyed on the `connected` field of the device record,
+  and that field is not a liveness signal. Measured against the live account
+  on 2026-08-26: all four adapters read `connected: false`, all four carried
+  the identical `updatedAt` to within 600 milliseconds, all four had an open
+  session in `/zones/{id}/connection-history` that had been running for
+  between one and six days, and all four were reporting current room
+  temperatures. A field that flips on every adapter at once, on one
+  cloud-side write, while the hardware is plainly talking, is a record of
+  something else.
+
+  So the thermostats disappeared for the night and came back the moment
+  anything touched a unit and the cloud wrote `true` again. The grace period
+  added in 1.14.0, and the two hour cap added in 1.15.0, only changed how
+  long it took: past the cap the flag won regardless of the history, and a
+  night is longer than two hours.
+
+  The gate is gone. A zone's entities are unavailable only when there is
+  genuinely nothing to report for it. A failed poll does not do it, and
+  neither does anything the cloud says about the adapter's connection.
+
+### Changed
+
+- `binary_sensor.<zone>_cloud_connection` now follows the zone's session
+  history, which does track real events, rather than the device record's
+  flag. The flag is still exposed, as the `cloud_connected_flag` attribute
+  alongside `open_session`, so the two can be compared.
+
+- Diagnostics report both signals per adapter under `connection` in place of
+  `disconnected_for`, which measured a grace period that no longer exists.
+
+- The per-poll re-read of a flagged zone's connection history is gone. It
+  existed only to second-guess the flag before taking entities away, and
+  nothing takes entities away now. The history still refreshes on the slow
+  tier, which is what the diagnostic sensors read.
+
 ## [1.15.1] - 2026-08-25
 
 ### Fixed

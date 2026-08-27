@@ -54,14 +54,33 @@ def _display_flag(name: str) -> Callable[[KumoCloudDevice], bool | None]:
 def _connected(device: KumoCloudDevice) -> bool | None:
     """Report whether the adapter is talking to the cloud.
 
-    Read from the device record, not from `kumo-properties`, which has a
-    `connected` field of its own that means something else entirely and
-    reads false on hardware that is plainly online.
+    Read from the zone's session history, which tracks real events: every
+    zone here closed a session within two minutes of a WiFi channel change.
+    The `connected` field on the device record is not that. It read false on
+    all four adapters at once, on one cloud-side write, for half a day,
+    while every one of them was reporting live room temperatures. Reported
+    as an attribute so the disagreement stays visible.
+
+    Nothing decides entity availability from either. See `connection.py`.
     """
+    online = device.coordinator.device_online(device.device_serial)
+    if online is not None:
+        return online
     value = device.device_data.get("connected")
     if value is None:
         value = device.zone_data.get("adapter", {}).get("connected")
     return value
+
+
+def _connected_attributes(device: KumoCloudDevice) -> dict[str, Any]:
+    """Expose both sources, since they routinely disagree."""
+    flag = device.device_data.get("connected")
+    if flag is None:
+        flag = device.zone_data.get("adapter", {}).get("connected")
+    return {
+        "open_session": device.coordinator.device_online(device.device_serial),
+        "cloud_connected_flag": flag,
+    }
 
 
 def _update_available(device: KumoCloudDevice) -> bool | None:
@@ -196,6 +215,7 @@ DESCRIPTIONS: tuple[KumoBinarySensorDescription, ...] = (
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_connected,
+        attributes_fn=_connected_attributes,
     ),
     KumoBinarySensorDescription(
         key="firmware_update",

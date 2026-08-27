@@ -1,13 +1,26 @@
-"""Deciding when a disconnected adapter should make its entities unavailable.
+"""Reading what the cloud says about an adapter's connection.
 
-The cloud flips an adapter's `connected` flag the moment a beat is missed,
-and flips it back the same way. Following that directly means the climate
-entity drops to unavailable for a blip nobody would otherwise have noticed,
-which breaks any automation reading it and leaves a hole in the history.
+**The `connected` field on the device record is not a liveness signal, and
+nothing here decides availability from it.** Measured against the live
+account on 2026-08-26: all four adapters read `connected: false`, all four
+carried the identical `updatedAt` to within 600 milliseconds, all four had
+an open session in `/zones/{id}/connection-history` that had been running
+for between one and six days, and all four were reporting current room
+temperatures. A field that flips on every adapter at once, on the same
+cloud-side write, while the hardware is plainly talking, is a record of
+something else. The Comfort app shows nothing wrong the whole time.
 
-So a drop is held for a grace period. If the adapter is back before the
-grace expires, nothing outside this module ever saw it go. If it is not, the
-entities do go unavailable, which by then is the truth rather than a guess.
+That flag is what entity availability used to key on, first directly and
+then behind a grace period. Both were wrong in the same way: the units
+disappeared from Home Assistant overnight while the app worked, and came
+back the moment anything touched a unit and the cloud wrote `true` again.
+The grace only changed how long it took. So the gate is gone. An entity is
+unavailable when Home Assistant cannot say what the state is, not when a
+vendor field reads false.
+
+What is left here reads the connection history, which does track real
+events: every zone closed a session within two minutes of a WiFi channel
+change. It feeds the diagnostic sensors, and nothing else.
 
 No Home Assistant imports here, so this is directly testable.
 """
@@ -15,77 +28,17 @@ No Home Assistant imports here, so this is directly testable.
 from __future__ import annotations
 
 
-class ConnectionGrace:
-    """Tracks how long the cloud has called each adapter disconnected.
+def has_open_session(rows: list[dict]) -> bool | None:
+    """Return whether the zone's history shows a session still running.
 
-    Two sources are weighed, because they have been seen to disagree. The
-    `connected` field on the device record is the fast one and the one that
-    lies: it read false for 90 minutes on a zone whose session history had
-    an open session running the whole time, and that false negative is what
-    made a working thermostat unavailable for an afternoon.
-
-    So a drop the history contradicts is tolerated to `cap` rather than to
-    `grace`. Not forever: if the history still shows an open session two
-    hours after the flag went false, one of the two is broken and the
-    conservative answer is to believe the flag.
+    This is the honest answer to "is the adapter on the network", as far as
+    the cloud has one. Returns None when there is no history to read, which
+    is not the same as a no: the history sits on the slow poll tier, so a
+    zone can go a while after startup without any.
     """
-
-    def __init__(self, grace: float, cap: float) -> None:
-        """Initialize with the uncorroborated and corroborated tolerances."""
-        self._grace = grace
-        self._cap = cap
-        self._since: dict[str, float] = {}
-        self._open_session: dict[str, bool] = {}
-
-    def note(self, serial: str, connected: bool, now: float) -> str | None:
-        """Record what the cloud currently says about one adapter.
-
-        Returns "dropped" the first time it is called disconnected,
-        "restored" when it comes back from that, and None when nothing
-        changed, so the caller can log the edges and stay quiet in between.
-        """
-        if connected:
-            self._open_session.pop(serial, None)
-            return "restored" if self._since.pop(serial, None) is not None else None
-        if serial in self._since:
-            return None
-        self._since[serial] = now
-        return "dropped"
-
-    def corroborate(self, serial: str, open_session: bool) -> bool:
-        """Record whether the session history still shows this adapter up.
-
-        Returns True when the answer changed, so the caller logs the
-        disagreement once rather than on every poll.
-        """
-        if self._open_session.get(serial) == open_session:
-            return False
-        self._open_session[serial] = open_session
-        return True
-
-    def available(self, serial: str, now: float) -> bool:
-        """Return whether the adapter should still be treated as reachable."""
-        since = self._since.get(serial)
-        if since is None:
-            return True
-        elapsed = now - since
-        if elapsed >= self._cap:
-            return False
-        if self._open_session.get(serial):
-            return True
-        return elapsed < self._grace
-
-    def disconnected_for(self, serial: str, now: float) -> float | None:
-        """Return how long the adapter has been down, or None if it is up."""
-        since = self._since.get(serial)
-        return None if since is None else now - since
-
-    def forget(self, serials: set[str]) -> None:
-        """Drop bookkeeping for adapters no longer on the site."""
-        for serial in set(self._since) - serials:
-            del self._since[serial]
-        for serial in set(self._open_session) - serials:
-            del self._open_session[serial]
+    if not rows:
+        return None
+    return any(row.get("isConnected") and row.get("end") is None for row in rows)
 
 
 def summarize_history(

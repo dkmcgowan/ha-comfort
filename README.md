@@ -476,34 +476,33 @@ it matches what you set.
 
 ### When a zone goes unavailable
 
-The cloud flips an adapter's `connected` flag on a single missed beat and
-flips it back the same way, and a WiFi adapter sharing a busy channel does
-that several times a day. Following it directly meant one zone's thermostat
-dropping to unavailable while every sensor on the same unit carried on,
-which is a confusing way to be told about a two minute blip and breaks any
-automation reading the entity.
+Almost never, on purpose. A zone's entities go unavailable only when there
+is genuinely nothing to report for it: no device record has ever arrived, or
+the config entry failed to set up. A failed poll does not do it, and neither
+does anything the cloud says about the adapter's connection.
 
-So a drop is held for 15 minutes. If the adapter is back inside that, no
-entity ever moves. Both edges are logged at warning level, naming the zone,
-so the log answers the question afterwards.
+**The cloud's `connected` field is not a liveness signal and nothing keys
+availability on it.** Measured against a live account on 2026-08-26: all
+four adapters read `connected: false`, all four carried the identical
+`updatedAt` to within 600 milliseconds, all four had an open session in
+`/zones/{id}/connection-history` that had been running for between one and
+six days, and all four were reporting current room temperatures. A field
+that flips on every adapter at once, on one cloud-side write, while the
+hardware is plainly talking, is a record of something else.
 
-**The flag is also checked against the cloud's own record before it is
-believed.** It has been seen reading disconnected for 90 minutes on a zone
-whose connection history had an open session running through the entire
-period, and the history is the source that tracks real events: every zone
-closed a session within two minutes of a WiFi channel change. That false
-negative is what made a working thermostat unavailable for an afternoon
-while the Comfort app showed nothing wrong.
+Following that field is what made every thermostat here disappear from Home
+Assistant overnight while the Comfort app showed nothing wrong, and brought
+them back the moment anything touched a unit and the cloud wrote `true`
+again. A grace period was tried first and only changed how long it took. An
+entity is unavailable when Home Assistant cannot say what the state is, not
+when a vendor field reads false.
 
-So when a zone is flagged disconnected its history is re-read on each poll,
-and while that history still shows an open session the entities stay
-available, up to a two hour cap. Once both sources agree, the entities go
-unavailable on the normal 15 minute rule. This costs one request per poll
-per broken zone and nothing while everything is working.
-
-Nothing is smoothed away: `binary_sensor.<zone>_cloud_connection` reports
-the raw flag, and `sensor.<zone>_connected_since` reports the start of the
-current connected session.
+The connection is still reported, just not acted on.
+`binary_sensor.<zone>_cloud_connection` follows the session history, which
+does track real events: every zone closed a session within two minutes of a
+WiFi channel change. Its `cloud_connected_flag` attribute carries the device
+record's field alongside it, so the disagreement stays visible.
+`sensor.<zone>_connected_since` reports the start of the current session.
 
 That sensor's attributes are the ones worth reading when a zone misbehaves.
 `availability_percent`, `outages`, `longest_outage_minutes` and

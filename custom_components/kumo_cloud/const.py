@@ -54,22 +54,3 @@ PUSH_SCAN_INTERVAL = 300
 # to the normal poll. Push is event driven and can legitimately go quiet, so
 # this is deliberately several times longer than any expected gap.
 PUSH_STALE_AFTER = 1800
-
-# How long the cloud has to keep calling an adapter disconnected before its
-# entities follow. The flag flips on a single missed beat and flips back the
-# same way, and a WiFi adapter on a busy channel does that several times a
-# day. Following it directly turns a blip into an unavailable climate entity,
-# which breaks automations and leaves a gap in the history for something that
-# was over before anyone looked. Longer than the slow poll tier, so a real
-# outage is still reported within a few minutes.
-DISCONNECT_GRACE = 900
-
-# The same, for a drop the cloud's own session history contradicts. The
-# `connected` field on the device record has been seen reading false for 90
-# minutes while `/zones/{id}/connection-history` had an open session running
-# through the whole period, and the history is the source that tracks real
-# events: every zone closed a session within two minutes of a WiFi channel
-# change. So a contradicted drop is tolerated for longer, but not forever.
-# Two hours in, one of the two sources is broken and the flag is the safer
-# one to believe.
-DISCONNECT_CAP = 7200

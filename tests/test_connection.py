@@ -1,9 +1,11 @@
-"""Tests for holding a briefly dropped adapter available.
+"""Tests for reading the cloud's connection signals.
 
-Written after a zone's climate entity was reported unavailable for hours at
-a time while every sensor on the same unit kept working. Two things caused
-that shape and both are covered here and in the coordinator: the cloud's
-`connected` flag flapping, and a failed device read blanking the record.
+Written after every zone's climate entity went unavailable overnight while
+the Comfort app showed nothing wrong. The cause was the `connected` field on
+the device record, which reads false on all four adapters at once, on one
+cloud-side write, while they are reporting live room temperatures.
+Availability no longer looks at it, so what is left to test here is reading
+the session history, which does track real events.
 
 `connection.py` imports no Home Assistant, so it is loaded straight off disk
 the way `test_command_cache.py` does it.
@@ -11,8 +13,6 @@ the way `test_command_cache.py` does it.
 
 import importlib.util
 import pathlib
-
-import pytest
 
 _PATH = (
     pathlib.Path(__file__).parent.parent
@@ -24,88 +24,46 @@ _SPEC = importlib.util.spec_from_file_location("kumo_connection", _PATH)
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
-ConnectionGrace = _MODULE.ConnectionGrace
-
-GRACE = 900.0
-CAP = 7200.0
+has_open_session = _MODULE.has_open_session
 
 
-@pytest.fixture
-def grace() -> object:
-    """Return a tracker using the shipping tolerances."""
-    return ConnectionGrace(GRACE, CAP)
+class TestHasOpenSession:
+    """The one connection signal that has held up against the hardware.
 
-
-def test_a_device_never_reported_down_is_available(grace):
-    """An adapter nothing has been said about counts as reachable."""
-    assert grace.available("SERIAL0001", 0.0) is True
-
-
-def test_a_fresh_drop_stays_available(grace):
-    """The entity does not follow the first disconnected report."""
-    grace.note("SERIAL0001", False, 0.0)
-    assert grace.available("SERIAL0001", 60.0) is True
-
-
-def test_a_drop_that_outlasts_the_grace_goes_unavailable(grace):
-    """A real outage is reported once it has lasted long enough."""
-    grace.note("SERIAL0001", False, 0.0)
-    assert grace.available("SERIAL0001", GRACE + 1.0) is False
-
-
-def test_the_grace_is_measured_from_the_first_report(grace):
-    """Repeated disconnected reports do not restart the clock.
-
-    Otherwise an adapter that is polled while down would never be reported
-    unavailable, because every poll would push the deadline out again.
+    Pinned against the live account on 2026-08-26: all four zones had an
+    open session running for between one and six days while the device
+    record called every one of them disconnected.
     """
-    for moment in (0.0, 300.0, 600.0):
-        grace.note("SERIAL0001", False, moment)
-    assert grace.available("SERIAL0001", GRACE + 1.0) is False
 
+    def test_no_history_is_not_an_answer(self):
+        """The history is on the slow tier, so a zone can have none yet."""
+        assert has_open_session([]) is None
 
-def test_coming_back_inside_the_grace_leaves_no_trace(grace):
-    """A blip that recovers never makes the entity unavailable."""
-    grace.note("SERIAL0001", False, 0.0)
-    grace.note("SERIAL0001", True, 120.0)
-    assert grace.available("SERIAL0001", 121.0) is True
+    def test_an_open_row_means_connected(self):
+        """`end` absent and `isConnected` set is the live session."""
+        rows = [{"start": 100.0, "end": None, "isConnected": True}]
+        assert has_open_session(rows) is True
 
+    def test_every_row_closed_means_disconnected(self):
+        """Nothing open is the cloud saying the adapter is off the network."""
+        rows = [
+            {"start": 100.0, "end": 200.0, "isConnected": False},
+            {"start": 0.0, "end": 90.0, "isConnected": False},
+        ]
+        assert has_open_session(rows) is False
 
-def test_coming_back_after_the_grace_restores_availability(grace):
-    """An adapter that returns is available again immediately."""
-    grace.note("SERIAL0001", False, 0.0)
-    assert grace.available("SERIAL0001", GRACE + 1.0) is False
-    grace.note("SERIAL0001", True, GRACE + 2.0)
-    assert grace.available("SERIAL0001", GRACE + 3.0) is True
+    def test_the_open_row_is_found_among_closed_ones(self):
+        """Rows arrive newest first, but the position is not relied on."""
+        rows = [
+            {"start": 300.0, "end": None, "isConnected": True},
+            {"start": 100.0, "end": 200.0, "isConnected": False},
+        ]
+        assert has_open_session(rows) is True
 
-
-def test_edges_are_reported_once(grace):
-    """The caller logs on the edges, so only the edges are announced."""
-    assert grace.note("SERIAL0001", False, 0.0) == "dropped"
-    assert grace.note("SERIAL0001", False, 60.0) is None
-    assert grace.note("SERIAL0001", True, 120.0) == "restored"
-    assert grace.note("SERIAL0001", True, 180.0) is None
-
-
-def test_devices_are_tracked_separately(grace):
-    """One zone dropping says nothing about another."""
-    grace.note("SERIAL0001", False, 0.0)
-    assert grace.available("SERIAL0002", GRACE + 1.0) is True
-    assert grace.available("SERIAL0001", GRACE + 1.0) is False
-
-
-def test_disconnected_for_reports_the_outage_length(grace):
-    """Used for the log line and for diagnostics."""
-    assert grace.disconnected_for("SERIAL0001", 0.0) is None
-    grace.note("SERIAL0001", False, 100.0)
-    assert grace.disconnected_for("SERIAL0001", 400.0) == 300.0
-
-
-def test_a_removed_zone_is_forgotten(grace):
-    """Bookkeeping for hardware taken off the site does not accumulate."""
-    grace.note("SERIAL0001", False, 0.0)
-    grace.forget({"SERIAL0002"})
-    assert grace.available("SERIAL0001", GRACE + 1.0) is True
+    def test_a_closed_row_flagged_connected_is_not_open(self):
+        """Both halves are required, since only the open row carries the flag."""
+        rows = [{"start": 100.0, "end": 200.0, "isConnected": True}]
+        assert has_open_session(rows) is False
 
 
 class TestSummarizeHistory:
@@ -183,65 +141,3 @@ class TestSummarizeHistory:
         rows = [{"start": None, "end": 100.0}, {"start": 0.0, "end": None}]
         summary = _MODULE.summarize_history(rows, 3600.0)
         assert summary["sessions"] == 1
-
-
-class TestCorroboration:
-    """A drop the session history contradicts is tolerated for longer.
-
-    From the field on 2026-08-25: one zone's `connected` field read false
-    for 90 minutes while its connection history had an open session running
-    through the whole period. The history is the source that tracks real
-    events, so the flag alone is not enough to take a thermostat away.
-    """
-
-    def test_an_open_session_outlasts_the_grace(self, grace):
-        """The 90 minute false negative, which the grace alone did not cover."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", True)
-        assert grace.available("SERIAL0001", 5400.0) is True
-
-    def test_it_still_gives_up_at_the_cap(self, grace):
-        """Two sources disagreeing for two hours means one is broken."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", True)
-        assert grace.available("SERIAL0001", CAP + 1.0) is False
-
-    def test_history_agreeing_leaves_the_grace_alone(self, grace):
-        """A real outage is still reported after fifteen minutes."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", False)
-        assert grace.available("SERIAL0001", GRACE + 1.0) is False
-
-    def test_an_unchecked_drop_uses_the_grace(self, grace):
-        """Before the history has been read, the flag gets the short rope."""
-        grace.note("SERIAL0001", False, 0.0)
-        assert grace.available("SERIAL0001", GRACE + 1.0) is False
-
-    def test_the_history_closing_the_session_ends_the_reprieve(self, grace):
-        """The adapter really did go: the next check agrees and it drops out."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", True)
-        assert grace.available("SERIAL0001", 3600.0) is True
-        grace.corroborate("SERIAL0001", False)
-        assert grace.available("SERIAL0001", 3660.0) is False
-
-    def test_reconnecting_clears_the_corroboration(self, grace):
-        """A later, genuine drop must not inherit the last one's reprieve."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", True)
-        grace.note("SERIAL0001", True, 100.0)
-        grace.note("SERIAL0001", False, 200.0)
-        assert grace.available("SERIAL0001", 200.0 + GRACE + 1.0) is False
-
-    def test_the_answer_is_reported_once(self, grace):
-        """The caller logs the disagreement, so only changes are announced."""
-        assert grace.corroborate("SERIAL0001", True) is True
-        assert grace.corroborate("SERIAL0001", True) is False
-        assert grace.corroborate("SERIAL0001", False) is True
-
-    def test_a_removed_zone_forgets_its_corroboration(self, grace):
-        """Bookkeeping does not accumulate for hardware taken off the site."""
-        grace.note("SERIAL0001", False, 0.0)
-        grace.corroborate("SERIAL0001", True)
-        grace.forget({"SERIAL0002"})
-        assert grace.available("SERIAL0001", CAP + 1.0) is True
