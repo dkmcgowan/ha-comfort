@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.17.1] - 2026-09-28
+
+### Fixed
+
+- **Reset filter works.** The button has failed every time with
+  `Unsupported method: PATCH`: the cloud route is a PATCH, verified against a
+  real account, but the request helper only sent GET, POST, PUT and DELETE,
+  so the call was refused before it left Home Assistant. The helper now sends
+  PATCH too, and a test pins every verb the client uses.
+
 ## [1.17.0] - 2026-08-26
 
 ### Added

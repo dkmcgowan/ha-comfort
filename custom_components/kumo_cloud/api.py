@@ -178,7 +178,7 @@ class KumoCloudAPI:
                         async with self.session.get(url, headers=headers) as response:
                             response.raise_for_status()
                             return await response.json()
-                    if verb in ("POST", "PUT", "DELETE"):
+                    if verb in ("POST", "PUT", "PATCH", "DELETE"):
                         async with self.session.request(
                             verb, url, headers=headers, json=data
                         ) as response:
