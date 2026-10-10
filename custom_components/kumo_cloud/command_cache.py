@@ -33,6 +33,21 @@ DEFAULT_TIMEOUT = 90.0
 SETPOINT_TOLERANCE = 0.25
 
 
+def with_implied_power(commands: dict[str, Any]) -> dict[str, Any]:
+    """Return the values to hold for a command, including the power it implies.
+
+    A mode change is sent as `operationMode` alone, and the cloud switches the
+    unit on or off to match. The thermostat reads `power` before the mode, so
+    holding only the mode leaves a unit that was just turned on still showing
+    off until the cloud reports back.
+    """
+    held = dict(commands)
+    mode = commands.get("operationMode")
+    if mode is not None:
+        held.setdefault("power", 0 if mode == "off" else 1)
+    return held
+
+
 def values_match(reported: Any, wanted: Any) -> bool:
     """Return whether the cloud is now reporting the value we asked for."""
     if isinstance(wanted, bool) or isinstance(reported, bool):

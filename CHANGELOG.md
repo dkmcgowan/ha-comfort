@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.18.1] - 2026-10-10
+
+### Fixed
+
+- **A mode change shows at once.** Tapping Off on a unit that was cooling
+  left the card on Cooling for several seconds before it moved to Off, long
+  enough to look like the tap had not worked. The value asked for was held
+  only for the next refresh, so the state written straight after the tap
+  still carried the old mode, and the new one appeared only once the cloud
+  command, a one second wait and a refresh had finished. The held values
+  are now laid over the record already there, so the first write shows
+  them, and the command goes on in the background.
+
+  A mode change also holds the power it implies. The thermostat reads
+  `power` before the mode, so turning a unit on from off showed Off until
+  the cloud agreed, even with the new mode held.
+
 ## [1.18.0] - 2026-10-10
 
 ### Fixed

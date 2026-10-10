@@ -15,7 +15,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import KumoCloudAPI, KumoCloudAuthError, KumoCloudConnectionError
-from .command_cache import CommandCache
+from .command_cache import CommandCache, with_implied_power
 from .connection import has_open_session
 from .const import (
     DEFAULT_SCAN_INTERVAL,
@@ -841,6 +841,16 @@ class KumoCloudDevice:
         self.coordinator.cache_command(self.device_serial, command, value)
 
     def cache_commands(self, commands: dict[str, Any]) -> None:
-        """Cache multiple commands with their values and timestamps in the coordinator."""
-        for command, value in commands.items():
+        """Hold the values just asked for, and show them straight away.
+
+        The command takes a cloud round trip and a refresh before it returns.
+        Holding the values only for the next refresh meant the state written
+        before sending still showed the old mode, so a tap looked like it had
+        done nothing for several seconds. Overlaying them on the record we
+        already have makes that first write show the new values.
+        """
+        for command, value in with_implied_power(commands).items():
             self.cache_command(command, value)
+        record = self.coordinator.devices.get(self.device_serial)
+        if record is not None:
+            self.coordinator.cached_commands.apply(self.device_serial, record, time.monotonic())

@@ -149,3 +149,32 @@ def test_power_zero_is_not_confused_with_false():
     cache.remember(SERIAL, "power", 0, now=100.0)
     cache.apply(SERIAL, {"power": 0}, now=101.0)
     assert len(cache) == 0
+
+
+with_implied_power = command_cache.with_implied_power
+
+
+def test_turning_off_holds_power_off_too():
+    assert with_implied_power({"operationMode": "off"}) == {"operationMode": "off", "power": 0}
+
+
+def test_picking_a_mode_holds_power_on_too():
+    """A unit turned on from off must not keep showing off until the cloud agrees."""
+    held = with_implied_power({"operationMode": "cool", "spCool": 22.0})
+    assert held == {"operationMode": "cool", "spCool": 22.0, "power": 1}
+
+
+def test_commands_without_a_mode_are_held_as_sent():
+    assert with_implied_power({"fanSpeed": "quiet"}) == {"fanSpeed": "quiet"}
+
+
+def test_held_values_show_on_the_record_already_there():
+    """What the first state write after a tap reads: the old record, overlaid."""
+    cache = CommandCache()
+    record = {"operationMode": "cool", "power": 1, "roomTemp": 22.0}
+    for field, value in with_implied_power({"operationMode": "off"}).items():
+        cache.remember(SERIAL, field, value, now=100.0)
+    cache.apply(SERIAL, record, now=100.0)
+    assert record["operationMode"] == "off"
+    assert record["power"] == 0
+    assert len(cache) == 2
