@@ -402,3 +402,70 @@ class TestStatusRequests:
 
         assert run(channel.async_force_request("SERIAL0001", "iuStatus")) is False
         assert len(channel._client.emitted) == 1
+
+
+# ---- The wireless sensor block ------------------------------------------
+
+
+# A sensor answer in the shape `GET /devices/{serial}/sensor` returns. Hand
+# written, like the fixtures in conftest.py.
+SENSOR = {
+    "battery": 100,
+    "rssi": -39,
+    "temperature": 23.4,
+    "humidity": 50.6,
+    "date": "2026-10-10T19:58:00.000Z",
+}
+
+
+class TestSensorRequests:
+    """Asking for `sensor`, which keeps a paired wireless sensor current.
+
+    Its stored record goes stale like everything else here: after a sensor
+    was paired again in the app, every field of it sat frozen across polls
+    while the unit's own reading moved.
+    """
+
+    def test_the_answer_is_parsed(self):
+        """Logging it and moving on is what left the record stale."""
+        assert push.BLOCK_UPDATE_EVENTS["sensor_update"] == "sensor"
+        assert push.FORCE_REQUEST_EVENTS["sensor"] == "sensor_update"
+
+    def test_answer_is_attributed_to_what_was_asked(self):
+        """No serial is assumed on the payload, so the pending request decides."""
+        channel, blocks = make_push()
+        channel._client = FakeClient(channel, lambda serial, block: SENSOR)
+
+        run(channel.async_force_request("SERIAL0002", "sensor"))
+
+        assert len(blocks) == 1
+        serial, block, payload = blocks[0]
+        assert (serial, block) == ("SERIAL0002", "sensor")
+        assert payload == {"battery": 100, "rssi": -39, "temperature": 23.4, "humidity": 50.6}
+
+    def test_each_sensor_lands_on_its_own_unit(self):
+        """Two units' readings must not swap, the same rule as `prohibits`."""
+        channel, blocks = make_push()
+
+        def answer(serial, block):
+            return dict(SENSOR, temperature=21.0 if serial == "SERIAL0001" else 24.5)
+
+        channel._client = FakeClient(channel, answer)
+
+        async def ask_all():
+            for serial in ("SERIAL0001", "SERIAL0002"):
+                await channel.async_force_request(serial, "sensor")
+
+        run(ask_all())
+
+        assert {serial: payload["temperature"] for serial, _, payload in blocks} == {
+            "SERIAL0001": 21.0,
+            "SERIAL0002": 24.5,
+        }
+
+    def test_it_is_throttled_like_the_rest(self):
+        """One a minute per unit, the app's own limit."""
+        channel, _ = make_push()
+
+        assert run(channel.async_force_request("SERIAL0001", "sensor")) is True
+        assert run(channel.async_force_request("SERIAL0001", "sensor")) is False

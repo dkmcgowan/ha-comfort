@@ -35,6 +35,19 @@ from .push import KumoCloudPush, merge_device_update
 # every other block there is nothing to attribute by hand.
 STATUS_BLOCK = "iuStatus"
 
+# The wireless sensor's own reading, asked for alongside `iuStatus` on zones
+# that have one paired. `GET /devices/{serial}/sensor` is a stored record
+# like every other read here, and nothing refreshes it unprompted: after a
+# sensor was removed and paired again in the Comfort app, its temperature,
+# humidity, battery and signal sat frozen across every poll, the
+# temperature 2.8 °F off the unit's own `roomTemp`, which is that same
+# sensor rounded and was current. The other three zones' sensor records
+# happened to keep moving, which is why it went unnoticed.
+SENSOR_BLOCK = "sensor"
+
+# Answer fields of the sensor block, the same ones `GET .../sensor` returns.
+SENSOR_FIELDS = ("battery", "rssi", "temperature", "humidity")
+
 # Blocks asked for over the push channel on every refresh.
 #
 # Prohibits is here because the wall remote lockout can be changed at the
@@ -132,7 +145,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         # readings come first: the record the first poll just read can be
         # hours old, and a thermostat showing last night's temperature for a
         # minute after a restart is the thing this is here to stop.
-        self._schedule_force_blocks((STATUS_BLOCK, *ADAPTER_BLOCKS))
+        self._schedule_force_blocks((STATUS_BLOCK, SENSOR_BLOCK, *ADAPTER_BLOCKS))
 
         self._cancel_status_reports = async_track_time_interval(
             self.hass,
@@ -161,6 +174,15 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         """
         if block == "prohibits":
             self.device_prohibits[device_serial] = payload
+        elif block == SENSOR_BLOCK:
+            # Merged over the record the poll read rather than replacing it,
+            # so an answer that leaves a field out does not blank it.
+            if not any(key in payload for key in SENSOR_FIELDS):
+                _LOGGER.debug("Sensor answer for %s with no readings: %s", device_serial, payload)
+                return
+            self.wireless_sensors[device_serial] = merge_device_update(
+                self.wireless_sensors.get(device_serial, {}), payload
+            )
         else:
             _LOGGER.debug("Ignoring unrouted block %s for %s", block, device_serial)
             return
@@ -201,7 +223,8 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         if self.push is None or not self.push.connected:
             return
         for block in blocks:
-            for serial in self._serials():
+            serials = self._sensor_serials() if block == SENSOR_BLOCK else self._serials()
+            for serial in serials:
                 try:
                     await self.push.async_force_request(serial, block)
                 except Exception as err:
@@ -218,9 +241,14 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
         record was measured 12.7 hours stale overnight. A poll re-reads that
         same record, so the poll cannot fix it and never could.
 
+        The wireless sensor block goes with it, for the zones that have one:
+        its stored record goes just as stale. Its answers carry no serial,
+        so they are waited for one at a time, after every zone's `iuStatus`
+        is already out.
+
         See `STATUS_REPORT_INTERVAL` for why the cadence is what it is.
         """
-        await self._async_force_blocks((STATUS_BLOCK,))
+        await self._async_force_blocks((STATUS_BLOCK, SENSOR_BLOCK))
 
     async def async_request_adapter_block(self, device_serial: str, block: str) -> None:
         """Ask one adapter to report one block now, ignoring the throttle.
@@ -261,6 +289,14 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             zone["adapter"]["deviceSerial"]
             for zone in self.zones
             if zone.get("adapter")
+        ]
+
+    def _sensor_serials(self) -> list[str]:
+        """Return the serials of the adapters with a wireless sensor paired."""
+        return [
+            zone["adapter"]["deviceSerial"]
+            for zone in self.zones
+            if zone.get("adapter") and zone["adapter"].get("hasSensor", False)
         ]
 
     @property

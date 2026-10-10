@@ -99,6 +99,7 @@ ANSWER_POLL = 0.1
 # Answers we parse, mapped back to the block that produces them.
 BLOCK_UPDATE_EVENTS = {
     "prohibits_update": "prohibits",
+    "sensor_update": "sensor",
 }
 
 # Known but not consumed. Logged so a change at the far end shows up rather
@@ -107,7 +108,6 @@ OBSERVED_EVENTS = (
     "device_status_v2",
     "adapter_update",
     "profile_update",
-    "sensor_update",
     "acoil_update",
     "hold_update",
     "autodry_update",

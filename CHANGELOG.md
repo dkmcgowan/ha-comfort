@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.18.0] - 2026-10-10
+
+### Fixed
+
+- **Wireless sensor readings stay current.** The sensor's temperature,
+  humidity, battery and signal come from `GET /devices/{serial}/sensor`,
+  which is a stored record like every other read on this cloud, and nothing
+  refreshed it. After a sensor was removed and paired again in the Comfort
+  app, all four values sat frozen across every poll and a reload, the
+  temperature 2.8 °F off the unit's own room temperature, which is that same
+  sensor rounded and was current. The other zones' sensor records happened
+  to keep moving, which is why it went unnoticed.
+
+  Each adapter with a paired sensor is now asked to report its `sensor`
+  block on the same once a minute timer as `iuStatus`, and on startup. The
+  answer is stored as it arrives, merged over the polled record so a field
+  it leaves out is not blanked. Like `prohibits`, the answer is attributed
+  to the request it follows, one outstanding at a time, and asked after
+  every zone's readings are already out.
+
 ## [1.17.1] - 2026-09-28
 
 ### Fixed
