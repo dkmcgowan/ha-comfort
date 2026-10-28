@@ -50,7 +50,9 @@ def test_hold_releases_once_the_cloud_agrees():
     cache.apply(SERIAL, {"operationMode": "dry"}, now=101.0)
     assert len(cache) == 1
 
-    caught_up = cache.apply(SERIAL, {"operationMode": "cool"}, now=105.0)
+    reported = {"operationMode": "cool"}
+    cache.acknowledge(SERIAL, reported)
+    caught_up = cache.apply(SERIAL, reported, now=105.0)
     assert caught_up["operationMode"] == "cool"
     assert len(cache) == 0
 
@@ -82,7 +84,9 @@ def test_holds_are_per_field():
     cache.remember(SERIAL, "operationMode", "cool", now=100.0)
     cache.remember(SERIAL, "spCool", 22.0, now=100.0)
 
-    record = cache.apply(SERIAL, {"operationMode": "cool", "spCool": 24.0}, now=101.0)
+    reported = {"operationMode": "cool", "spCool": 24.0}
+    cache.acknowledge(SERIAL, reported)
+    record = cache.apply(SERIAL, reported, now=101.0)
     # The mode landed and was released; the setpoint has not, so it is held.
     assert record["spCool"] == 22.0
     assert cache.pending_fields(SERIAL) == {"spCool"}
@@ -93,7 +97,9 @@ def test_setpoints_compare_with_a_tolerance():
     cache = CommandCache()
     cache.remember(SERIAL, "spCool", 22.5, now=100.0)
 
-    cache.apply(SERIAL, {"spCool": 22.5000001}, now=101.0)
+    reported = {"spCool": 22.5000001}
+    cache.acknowledge(SERIAL, reported)
+    cache.apply(SERIAL, reported, now=101.0)
     assert len(cache) == 0
 
 
@@ -147,6 +153,7 @@ def test_power_zero_is_not_confused_with_false():
     """`power` is 0 or 1 and must compare as a number, not a truth value."""
     cache = CommandCache()
     cache.remember(SERIAL, "power", 0, now=100.0)
+    cache.acknowledge(SERIAL, {"power": 0})
     cache.apply(SERIAL, {"power": 0}, now=101.0)
     assert len(cache) == 0
 
@@ -178,3 +185,49 @@ def test_held_values_show_on_the_record_already_there():
     assert record["operationMode"] == "off"
     assert record["power"] == 0
     assert len(cache) == 2
+
+
+def test_reapplying_an_optimistic_record_does_not_acknowledge_it():
+    """Rendering a desired value twice is not an echo from the cloud."""
+    cache = CommandCache()
+    cache.remember(SERIAL, "operationMode", "vent", now=100.0)
+    cache.remember(SERIAL, "power", 1, now=100.0)
+    record = cache.apply(SERIAL, {"operationMode": "off", "power": 0}, now=101.0)
+
+    cache.apply(SERIAL, record, now=102.0)
+
+    assert cache.pending_fields(SERIAL) == {"operationMode", "power"}
+
+
+@pytest.mark.parametrize("reported", [{}, {"roomTemp": 22.0}, {"operationMode": None}])
+def test_only_an_explicit_non_null_report_acknowledges_a_field(reported):
+    cache = CommandCache()
+    cache.remember(SERIAL, "operationMode", "vent", now=100.0)
+    before = dict(reported)
+
+    cache.acknowledge(SERIAL, reported)
+
+    assert cache.pending_fields(SERIAL) == {"operationMode"}
+    # Acknowledgement inspects a raw report without adding optimistic fields.
+    assert reported == before
+
+
+@pytest.mark.parametrize("reported", [{}, {"optional": None}])
+def test_missing_or_null_does_not_acknowledge_a_null_pending_value(reported):
+    cache = CommandCache()
+    cache.remember(SERIAL, "optional", None, now=100.0)
+
+    cache.acknowledge(SERIAL, reported)
+
+    assert cache.pending_fields(SERIAL) == {"optional"}
+
+
+def test_another_devices_report_cannot_acknowledge_a_hold():
+    cache = CommandCache()
+    cache.remember(SERIAL, "power", 1, now=100.0)
+    cache.remember("OTHER", "power", 1, now=100.0)
+
+    cache.acknowledge("OTHER", {"power": 1})
+
+    assert cache.pending_fields(SERIAL) == {"power"}
+    assert cache.pending_fields("OTHER") == set()

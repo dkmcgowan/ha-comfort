@@ -77,11 +77,27 @@ class CommandCache:
         """
         self._pending[(serial, field)] = (now, value)
 
-    def apply(self, serial: str, record: dict[str, Any], now: float) -> dict[str, Any]:
-        """Overlay held values onto a device record, releasing what has landed.
+    def acknowledge(self, serial: str, reported: dict[str, Any]) -> None:
+        """Release fields explicitly confirmed by an unmodified cloud report.
 
-        Mutates and returns `record`, which is the freshly fetched or pushed
-        state for this device.
+        Call before merging or overlaying the report with local state. Missing
+        and null fields do not confirm anything, even if an optimistic record
+        already contains the requested value.
+        """
+        for key in list(self._pending):
+            held_serial, field = key
+            if held_serial != serial or field not in reported or reported[field] is None:
+                continue
+
+            _, wanted = self._pending[key]
+            if values_match(reported[field], wanted):
+                del self._pending[key]
+
+    def apply(self, serial: str, record: dict[str, Any], now: float) -> dict[str, Any]:
+        """Overlay unexpired held values without acknowledging local state.
+
+        Mutates and returns `record`, which may already contain optimistic
+        values. Only `acknowledge` may release a hold based on a reported value.
         """
         for key in list(self._pending):
             held_serial, field = key
@@ -89,10 +105,6 @@ class CommandCache:
                 continue
 
             sent_at, wanted = self._pending[key]
-
-            if values_match(record.get(field), wanted):
-                del self._pending[key]
-                continue
 
             if now - sent_at > self._timeout:
                 del self._pending[key]

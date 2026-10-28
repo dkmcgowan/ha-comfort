@@ -352,6 +352,9 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             # record that entities would read as missing fields.
             return
 
+        # Only fields in the raw payload can confirm pending commands. The
+        # current record may already contain values from a local overlay.
+        self.cached_commands.acknowledge(serial, payload)
         merged = merge_device_update(self.devices[serial], payload)
         # Anything the user just asked for outranks what the cloud reports
         # until the cloud catches up, same rule the poll follows.
@@ -541,7 +544,9 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
                     # one zone's thermostat gone while its sensors were
                     # fine. Keep what was last known instead.
                     device_detail = result_map.get("detail")
-                    if not device_detail:
+                    if device_detail:
+                        self.cached_commands.acknowledge(device_serial, device_detail)
+                    else:
                         device_detail = self.devices.get(device_serial) or {}
                         if device_detail:
                             _LOGGER.warning(
@@ -631,6 +636,7 @@ class KumoCloudDataUpdateCoordinator(DataUpdateCoordinator):
             # Get fresh device details
             device_detail = await self.api.get_device_details(device_serial)
 
+            self.cached_commands.acknowledge(device_serial, device_detail)
             # Process pending commands for the device
             self._process_pending_commands(device_serial, device_detail)
 
