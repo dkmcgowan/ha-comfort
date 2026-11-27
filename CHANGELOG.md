@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.18.2] - 2026-11-26
+
+### Fixed
+
+- **Fault no longer lights on healthy units.** The Fault sensor was on for
+  every unit on one account while each showed status code A0 and the Comfort
+  app reported nothing wrong. It treated any value in `unusualFigures` as a
+  fault, and those units all report 32768, which stays put after a filter
+  reset and is not explained anywhere. No other Kumo integration reads that
+  field (the Hubitat driver and hass-kumo with pykumo were checked).
+
+  Fault now follows the status code alone: on for anything other than A0
+  (or 00), off for A0, unknown when the code is missing. `unusualFigures`
+  is still shown as an attribute of the Status code sensor.
+
 ## [1.18.1] - 2026-10-10
 
 ### Fixed

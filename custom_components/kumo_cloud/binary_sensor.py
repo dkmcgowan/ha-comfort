@@ -94,15 +94,17 @@ def _update_available(device: KumoCloudDevice) -> bool | None:
 def _has_fault(device: KumoCloudDevice) -> bool | None:
     """Report whether the unit is signalling an error.
 
-    `unusualFigures` carries the detail when something is wrong and is null
-    otherwise. `twoFiguresCode` is the two character code the unit displays,
-    and reads "A0" when everything is fine.
+    `twoFiguresCode` is the two character code the unit displays, and reads
+    "A0" when everything is fine. Only that code decides.
+
+    `unusualFigures` is not a fault signal. Every unit on one account reports
+    32768 while showing A0 with nothing wrong, and it stays at 32768 after a
+    filter reset. No other Kumo integration reads it. It is still shown as an
+    attribute of the status code sensor.
     """
     data = device.device_data
     if not data:
         return None
-    if data.get("unusualFigures"):
-        return True
     code = data.get("twoFiguresCode")
     return None if code is None else code not in ("A0", "00", "")
 
