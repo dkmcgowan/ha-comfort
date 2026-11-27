@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("homeassistant", reason="Home Assistant is not importable here")
 
-from custom_components.kumo_cloud.binary_sensor import _has_fault  # noqa: E402
+from custom_components.kumo_cloud.binary_sensor import _has_fault
 
 
 def _device(data):
